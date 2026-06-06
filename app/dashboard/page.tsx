@@ -144,33 +144,35 @@ export default function DashboardOverview() {
           }
           let readings = result.value.data;
           if (Array.isArray(readings) && readings.length > 0) {
-            const times = readings.map((r: any) => new Date(r.Time).getTime());
-            const maxTime = Math.max(...times);
+            const times = readings.map((r: any) => new Date(r.Timestamp || r.timestamp || r.Time || r.time).getTime());
+            const maxTime = Math.max(...times.filter((t) => !isNaN(t)));
             const oneYearAgo = maxTime - 365 * 24 * 60 * 60 * 1000;
-            readings = readings.filter((r: any) => new Date(r.Time).getTime() >= oneYearAgo);
+            readings = readings.filter((r: any) => new Date(r.Timestamp || r.timestamp || r.Time || r.time).getTime() >= oneYearAgo);
 
             if (readings.length > 0) {
               const latest = readings[readings.length - 1];
-              const hi01 = safeNumber(latest.HI, 0);
+              const hi01 = safeNumber(latest.HI ?? latest.hi, 0);
               const status = statusFromHI(hi01);
 
               const mappedReadings: TelemetryPoint[] = readings.slice(-120).map((r: any) => ({
                 ...r,
                 Transformer: trfId,
-                Time: r.Time,
-                HI: safeNumber(r.HI, hi01),
-                Ambient_Temperature_C: safeNumber(r.Ambient_Temperature_C, safeNumber(latest.Ambient_Temperature_C)),
-                Age_yr: safeNumber(r.Age_yr, safeNumber(latest.Age_yr)),
-                Outages_hours_per_year: safeNumber(r.Outages_hours_per_year, safeNumber(latest.Outages_hours_per_year)),
-                Current_A: safeNumber(r.Current_A, safeNumber(latest.Current_A)),
-                Voltage_kV: safeNumber(r.Voltage_kV, safeNumber(latest.Voltage_kV)),
-                Predicted_HI: safeNumber(r.Predicted_HI, safeNumber(latest.Predicted_HI)),
+                Time: r.Timestamp || r.timestamp || r.Time || r.time,
+                HI: safeNumber(r.HI ?? r.hi, hi01),
+                Ambient_Temperature_C: safeNumber(r.Ambient_Temperature_C ?? r.ambient_temperature_c, safeNumber(latest.Ambient_Temperature_C ?? latest.ambient_temperature_c)),
+                Age_yr: safeNumber(r.Age_yr ?? r.age_yr, safeNumber(latest.Age_yr ?? latest.age_yr)),
+                Outages_hours_per_year: safeNumber(r.Outages_hours_per_year ?? r.outages_hours_per_year, safeNumber(latest.Outages_hours_per_year ?? latest.outages_hours_per_year)),
+                Current_A: safeNumber(r.Current_A ?? r.current_a, safeNumber(latest.Current_A ?? latest.current_a)),
+                Voltage_kV: safeNumber(r.Voltage_kV ?? r.voltage_kv, safeNumber(latest.Voltage_kV ?? latest.voltage_kv)),
+                Predicted_HI: safeNumber(r.Predicted_HI ?? r.predicted_hi, safeNumber(latest.Predicted_HI ?? latest.predicted_hi)),
+                Maintenance_Count: safeNumber(r.Maintenance_Count ?? r.maintenance_count, safeNumber(latest.Maintenance_Count ?? latest.maintenance_count)),
+                Short_Circuits: safeNumber(r.Short_Circuits ?? r.short_circuits, safeNumber(latest.Short_Circuits ?? latest.short_circuits)),
               }));
 
               allHistory.push(...mappedReadings);
 
-              const ambient = safeNumber(latest.Ambient_Temperature_C, 0);
-              const ageYr = safeNumber(latest.Age_yr, 0);
+              const ambient = safeNumber(latest.Ambient_Temperature_C ?? latest.ambient_temperature_c, 0);
+              const ageYr = safeNumber(latest.Age_yr ?? latest.age_yr, 0);
 
               const weightageOverall = clamp(100 - hi01 * 100 + ageYr * 1.5 + ambient * 0.1, 0, 100);
               const rulYears = clamp((hi01 * 0.2 + (1 - ageYr) * 0.02) * 10, 0.1, 20);
@@ -183,10 +185,10 @@ export default function DashboardOverview() {
                 healthIndex: hi01 * 100,
                 ambientTemperatureC: ambient,
                 ageYr,
-                capacity: safeNumber(latest.capacity, 0),
-                location: latest.location || 'Database Value Missing',
-                type: latest.type || 'Database Value Missing',
-                lastMaintenance: String(latest.Time),
+                capacity: safeNumber(latest.capacity ?? latest.Capacity, 0),
+                location: latest.location || latest.Location || 'Database Value Missing',
+                type: latest.type || latest.Type || 'Database Value Missing',
+                lastMaintenance: String(latest.Timestamp || latest.timestamp || latest.Time || latest.time),
                 readings: mappedReadings,
                 weightageOverall,
                 rulDays,
@@ -247,7 +249,16 @@ export default function DashboardOverview() {
       critical: transformers.filter((t) => t.status === 'CRITICAL').length,
     };
     const avgHI = transformers.length ? transformers.reduce((acc, t) => acc + t.healthIndex, 0) / transformers.length : 0;
-    return { ...counts, avgHI, totalOutages: 48, totalMaintenance: 134 };
+    const totalOutages = Math.round(transformers.reduce((acc, t) => {
+      const latest = t.readings[t.readings.length - 1];
+      return acc + (latest?.Outages_hours_per_year || 0);
+    }, 0));
+    const totalMaintenance = Math.round(transformers.reduce((acc, t) => {
+      const latest = t.readings[t.readings.length - 1];
+      return acc + (latest?.Maintenance_Count ?? latest?.maintenance_count ?? 0);
+    }, 0));
+
+    return { ...counts, avgHI, totalOutages, totalMaintenance };
   }, [transformers]);
 
   const statusOrder: TransformerStatus[] = ['GOOD', 'MONITOR', 'WARNING', 'CRITICAL'];
