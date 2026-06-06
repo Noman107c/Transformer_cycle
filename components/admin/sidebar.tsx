@@ -1,0 +1,102 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import {
+  LayoutDashboard,
+  BarChart3,
+  AlertCircle,
+  Settings,
+  ChevronRight,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const ADMIN_MENU_ITEMS = [
+  {
+    href: '/admin/dashboard',
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    description: 'Overview and key metrics',
+  },
+  {
+    href: '/admin/analytics',
+    label: 'Analytics',
+    icon: BarChart3,
+    description: 'Detailed performance data',
+  },
+  {
+    href: '/admin/logs',
+    label: 'Logs',
+    icon: AlertCircle,
+    description: 'System and activity logs',
+  },
+  {
+    href: '/admin/settings',
+    label: 'Settings',
+    icon: Settings,
+    description: 'System configuration',
+  },
+];
+
+export function AdminSidebar() {
+  const pathname = usePathname();
+
+  return (
+    <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-gray-700 bg-gray-900 pt-20 overflow-y-auto">
+      <nav className="space-y-1 px-4 py-4">
+        {ADMIN_MENU_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'group relative flex flex-col gap-1 rounded-lg px-4 py-3 transition-all duration-200',
+                isActive
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Icon className="h-5 w-5 flex-shrink-0" />
+                  <span className="font-medium">{item.label}</span>
+                </div>
+                {isActive && <ChevronRight className="h-4 w-4" />}
+              </div>
+              <span className={cn(
+                'text-xs transition-colors',
+                isActive ? 'text-blue-100' : 'text-gray-500 group-hover:text-gray-400'
+              )}>
+                {item.description}
+              </span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Divider */}
+      <div className="border-t border-gray-700 px-4 py-4">
+        <div className="rounded-lg bg-gray-800 p-4">
+          <h3 className="text-sm font-semibold text-gray-200 mb-2">Quick Stats</h3>
+          <div className="space-y-2 text-xs text-gray-400">
+            <div className="flex justify-between">
+              <span>Total Transformers:</span>
+              <span className="font-semibold text-white">25</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Active Alerts:</span>
+              <span className="font-semibold text-red-400">3</span>
+            </div>
+            <div className="flex justify-between">
+              <span>System Status:</span>
+              <span className="font-semibold text-green-400">Healthy</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
