@@ -70,33 +70,6 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-sidebar-border mt-auto">
-        <div className="p-4 rounded-lg glassmorphism bg-[#050818]/60 border border-blue-500/10 space-y-3 shadow-inner">
-          <div className="space-y-2">
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-muted-foreground font-medium">Total Transformers</span>
-              <span className="text-foreground font-bold text-sm">25</span>
-            </div>
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-muted-foreground font-medium">Monitoring Duration</span>
-              <span className="text-foreground font-bold text-sm">5 Years</span>
-            </div>
-            <div className="flex flex-col gap-0.5 text-xs">
-              <span className="text-muted-foreground font-medium">Data Points (15 Min Interval)</span>
-              <span className="text-foreground font-bold text-sm">2,92,200</span>
-            </div>
-          </div>
-          <button 
-            onClick={() => {
-              // Trigger a download simulation
-              alert('Compiling comprehensive fleet audit report (2,92,200 data points)... \nCSV download initiated successfully.');
-            }}
-            className="w-full py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-md shadow-md hover:shadow-blue-500/20 neon-glow transition-all duration-300 active:scale-95 cursor-pointer"
-          >
-            Export Report
-          </button>
-        </div>
-      </div>
     </aside>
   );
 }

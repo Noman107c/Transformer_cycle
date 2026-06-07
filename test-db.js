@@ -1,30 +1,24 @@
-import 'dotenv/config'
-import { createClient } from '@supabase/supabase-js'
+require('dotenv').config();
+const postgres = require('postgres');
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-)
+const sql = postgres(process.env.DATABASE_URL, {
+  ssl: 'require'
+});
 
-async function fetchData() {
-  console.log('🔄 Fetching data from transformer_2...\n')
+async function test() {
+  try {
+    const result = await sql`
+      SELECT *
+      FROM public.transformer_1
+      LIMIT 1
+    `;
 
-  const { data, error } = await supabase
-    .from('transformer_2') // 👈 NEW TABLE
-    .select('*')
-
-  if (error) {
-    console.log('❌ Error:', error.message)
-    return
+    console.log(result);
+  } catch (err) {
+    console.error('Error:', err);
+  } finally {
+    await sql.end();
   }
-
-  if (!data || data.length === 0) {
-    console.log('⚠️ No data found in transformer_2 table')
-    return
-  }
-
-  console.log('✅ Data fetched successfully:\n')
-  console.table(data)
 }
 
-fetchData()
+test();

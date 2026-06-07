@@ -294,24 +294,12 @@ export default function DashboardOverview() {
       {/* HEADER */}
       <div className="flex justify-between items-start border-b border-gray-800 pb-3">
         <div className="flex items-center gap-3">
-          <div className="text-gray-400 bg-gray-900 p-2 rounded"><img src="/favicon.ico" className="w-8 h-8 opacity-50" alt="logo"/></div>
           <div>
             <h1 className="text-xl font-bold text-white uppercase tracking-wider">Integrated Machine Learning Driven Asset Lifecycle Management</h1>
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest">For Distribution Transformers</h2>
           </div>
         </div>
-        <div className="flex gap-4 items-center text-xs">
-          <div className="flex gap-2 items-center bg-[#0a1128] border border-gray-800 rounded px-3 py-1.5">
-            <span className="text-gray-500">Time Range</span>
-            <span className="text-gray-300 bg-black px-2 py-0.5 rounded">01-May-2019 00:00</span>
-            <span className="text-gray-500">to</span>
-            <span className="text-gray-300 bg-black px-2 py-0.5 rounded">30-Apr-2024 23:45</span>
-            <span className="bg-blue-600 text-white px-2 py-0.5 rounded ml-2">15 Min Interval</span>
-          </div>
-          <div className="text-gray-500">
-            Last Updated: <span className="text-gray-300">{lastUpdated || '12-May-2024 10:30 AM'}</span>
-          </div>
-        </div>
+
       </div>
 
       {/* ROW 1: STATS */}

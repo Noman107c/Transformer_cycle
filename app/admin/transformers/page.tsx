@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/layout';
 import {
   Plus, Pencil, Trash2, X, Save, Loader2, Cpu,
-  MapPin, Zap, Activity, AlertTriangle, CheckCircle2, RefreshCw
+  MapPin, Zap, Activity, AlertTriangle, CheckCircle2, RefreshCw, Database
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -199,85 +199,88 @@ export default function AdminTransformersPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-gray-800 text-gray-400 text-xs font-bold uppercase">
-                  <th className="py-4 px-5">ID</th>
-                  <th className="py-4 px-5">Name</th>
-                  <th className="py-4 px-5">Location</th>
-                  <th className="py-4 px-5">Type</th>
-                  <th className="py-4 px-5">Capacity</th>
-                  <th className="py-4 px-5">Status</th>
-                  <th className="py-4 px-5">Active</th>
-                  <th className="py-4 px-5 text-right">Actions</th>
+                <tr className="border-b border-gray-800 text-gray-400 text-[10px] font-bold uppercase whitespace-nowrap">
+                  <th className="py-4 px-3 sticky left-0 bg-gray-900 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]">ID</th>
+                  <th className="py-4 px-3">Timestamp</th>
+                  <th className="py-4 px-3">Ambient Temp (°C)</th>
+                  <th className="py-4 px-3">Age (yr)</th>
+                  <th className="py-4 px-3">Maintenance Count</th>
+                  <th className="py-4 px-3">Short Circuits</th>
+                  <th className="py-4 px-3">Outages (hrs/yr)</th>
+                  <th className="py-4 px-3">Current (A)</th>
+                  <th className="py-4 px-3">Voltage (kV)</th>
+                  <th className="py-4 px-3">Temp Score</th>
+                  <th className="py-4 px-3">Age Score</th>
+                  <th className="py-4 px-3">Maint Score</th>
+                  <th className="py-4 px-3">ShortCircuit Score</th>
+                  <th className="py-4 px-3">Outage Score</th>
+                  <th className="py-4 px-3">Current Score</th>
+                  <th className="py-4 px-3">Voltage Score</th>
+                  <th className="py-4 px-3">HI</th>
+                  <th className="py-4 px-3">Predicted HI</th>
+                  <th className="py-4 px-3 text-right sticky right-0 bg-gray-900 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-800">
+              <tbody className="divide-y divide-gray-800 text-xs">
                 {loading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <tr key={i}>
-                      {Array.from({ length: 8 }).map((_, j) => (
-                        <td key={j} className="py-4 px-5">
-                          <div className="h-4 bg-gray-800 rounded animate-pulse w-20" />
+                      {Array.from({ length: 20 }).map((_, j) => (
+                        <td key={j} className="py-4 px-3">
+                          <div className="h-4 bg-gray-800 rounded animate-pulse w-12" />
                         </td>
                       ))}
                     </tr>
                   ))
                 ) : transformers.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-16 text-center text-gray-500 font-bold">
-                      No transformers found. Click &quot;Add Transformer&quot; to get started.
+                    <td colSpan={20} className="py-16 text-center text-gray-500 font-bold">
+                      No transformers found. Click "Add Transformer" to get started.
                     </td>
                   </tr>
                 ) : (
-                  transformers.map(t => (
-                    <tr key={t.id} className="hover:bg-gray-800/50 transition-colors">
-                      <td className="py-4 px-5 font-black text-white font-mono">{t.id}</td>
-                      <td className="py-4 px-5 font-semibold text-gray-200">{t.name}</td>
-                      <td className="py-4 px-5 text-gray-400">
-                        <span className="flex items-center gap-1">
-                          <MapPin size={12} className="text-cyan-400" /> {t.location || '—'}
-                        </span>
-                      </td>
-                      <td className="py-4 px-5 text-gray-400">{t.type}</td>
-                      <td className="py-4 px-5 text-gray-300 font-semibold">
-                        <span className="flex items-center gap-1">
-                          <Zap size={12} className="text-yellow-400" /> {t.capacity} kVA
-                        </span>
-                      </td>
-                      <td className="py-4 px-5">
-                        <span className={`px-2.5 py-1 rounded-full border text-[10px] font-extrabold ${STATUS_COLORS[t.status] || 'text-gray-400 bg-gray-700 border-gray-600'}`}>
-                          {t.status}
-                        </span>
-                      </td>
-                      <td className="py-4 px-5">
-                        {t.is_active
-                          ? <span className="flex items-center gap-1 text-emerald-400 text-xs font-bold"><CheckCircle2 size={13} /> Active</span>
-                          : <span className="flex items-center gap-1 text-gray-500 text-xs font-bold"><AlertTriangle size={13} /> Inactive</span>
-                        }
-                      </td>
-                      <td className="py-4 px-5">
+                  transformers.map((t: any) => (
+                    <tr key={t.id} className="hover:bg-gray-800/50 transition-colors whitespace-nowrap">
+                      <td className="py-3 px-3 font-black text-white font-mono sticky left-0 bg-gray-900 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]">{t.id}</td>
+                      <td className="py-3 px-3 text-gray-400">{t.Timestamp ? new Date(t.Timestamp).toLocaleString() : '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Ambient_Temperature_C ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Age_yr ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Maintenance_Count ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.No_of_Short_Circuits ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Outages_hours_per_year ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Current_A ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Voltage_kV ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Temp_score ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Age_score ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Maintenance_score ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.ShortCircuit_score ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Outage_score ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Current_score ?? '—'}</td>
+                      <td className="py-3 px-3 text-gray-300">{t.Voltage_score ?? '—'}</td>
+                      <td className="py-3 px-3 font-bold text-cyan-400">{t.HI !== undefined ? (t.HI * 100).toFixed(1) + '%' : '—'}</td>
+                      <td className="py-3 px-3 font-bold text-purple-400">{t.Predicted_HI !== undefined ? (t.Predicted_HI * 100).toFixed(1) + '%' : '—'}</td>
+                      <td className="py-3 px-3 sticky right-0 bg-gray-900 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">
                         <div className="flex items-center justify-end gap-2">
                           <button
-                            onClick={() => window.location.href = `/admin/transformers/${t.id}`}
-                            className="p-2 text-cyan-400 hover:text-white hover:bg-cyan-600 rounded-lg transition-all cursor-pointer"
+                            onClick={() => window.location.href = `/admin/transformers/${t.id.match(/\\d+/)?.[0] ?? t.id}`}
+                            className="p-1.5 text-cyan-400 hover:text-white hover:bg-cyan-600 rounded transition-all cursor-pointer flex items-center gap-1"
                             title="View Data"
                           >
-                            <Activity size={14} />
+                            <Database size={12} /> <span className="text-[10px] uppercase font-bold">View Data</span>
                           </button>
                           <button
-                            id={`edit-${t.id}-btn`}
                             onClick={() => openEdit(t)}
-                            className="p-2 text-blue-400 hover:text-white hover:bg-blue-600 rounded-lg transition-all cursor-pointer"
+                            className="p-1.5 text-blue-400 hover:text-white hover:bg-blue-600 rounded transition-all cursor-pointer"
                             title="Edit"
                           >
-                            <Pencil size={14} />
+                            <Pencil size={12} />
                           </button>
                           <button
-                            id={`delete-${t.id}-btn`}
                             onClick={() => setDeleteTarget(t)}
-                            className="p-2 text-red-400 hover:text-white hover:bg-red-600 rounded-lg transition-all cursor-pointer"
+                            className="p-1.5 text-red-400 hover:text-white hover:bg-red-600 rounded transition-all cursor-pointer"
                             title="Delete"
                           >
-                            <Trash2 size={14} />
+                            <Trash2 size={12} />
                           </button>
                         </div>
                       </td>

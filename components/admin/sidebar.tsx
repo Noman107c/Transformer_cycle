@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   BarChart3,
@@ -45,8 +46,38 @@ const ADMIN_MENU_ITEMS = [
   },
 ];
 
+type QuickStats = {
+  total: number;
+  active: number;
+  critical: number;
+  status: 'Healthy' | 'Degraded' | 'Critical';
+};
+
 export function AdminSidebar() {
   const pathname = usePathname();
+  const [stats, setStats] = useState<QuickStats | null>(null);
+
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const res = await fetch('/api/admin/transformers');
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          const data = json.data;
+          const critical = data.filter((t: any) => t.status === 'CRITICAL').length;
+          setStats({
+            total: data.length,
+            active: data.filter((t: any) => t.is_active).length,
+            critical,
+            status: critical > 3 ? 'Critical' : critical > 0 ? 'Degraded' : 'Healthy',
+          });
+        }
+      } catch {
+        // Silently fail — sidebar stats are non-critical
+      }
+    };
+    loadStats();
+  }, []);
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-gray-700 bg-gray-900 pt-20 overflow-y-auto">
@@ -84,24 +115,44 @@ export function AdminSidebar() {
         })}
       </nav>
 
-      {/* Divider */}
+      {/* Dynamic Quick Stats from DB */}
       <div className="border-t border-gray-700 px-4 py-4">
         <div className="rounded-lg bg-gray-800 p-4">
-          <h3 className="text-sm font-semibold text-gray-200 mb-2">Quick Stats</h3>
-          <div className="space-y-2 text-xs text-gray-400">
-            <div className="flex justify-between">
-              <span>Total Transformers:</span>
-              <span className="font-semibold text-white">25</span>
+          <h3 className="text-sm font-semibold text-gray-200 mb-3">Live Stats</h3>
+          {stats ? (
+            <div className="space-y-2 text-xs text-gray-400">
+              <div className="flex justify-between">
+                <span>Total Transformers:</span>
+                <span className="font-semibold text-white">{stats.total}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Active Units:</span>
+                <span className="font-semibold text-emerald-400">{stats.active}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Critical Alerts:</span>
+                <span className={`font-semibold ${stats.critical > 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                  {stats.critical}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>System Status:</span>
+                <span className={`font-semibold ${
+                  stats.status === 'Healthy' ? 'text-green-400'
+                  : stats.status === 'Degraded' ? 'text-yellow-400'
+                  : 'text-red-400'
+                }`}>
+                  {stats.status}
+                </span>
+              </div>
             </div>
-            <div className="flex justify-between">
-              <span>Active Alerts:</span>
-              <span className="font-semibold text-red-400">3</span>
+          ) : (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-4 bg-gray-700 rounded animate-pulse" />
+              ))}
             </div>
-            <div className="flex justify-between">
-              <span>System Status:</span>
-              <span className="font-semibold text-green-400">Healthy</span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </aside>
