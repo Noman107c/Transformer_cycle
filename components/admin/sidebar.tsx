@@ -8,6 +8,7 @@ import {
   AlertCircle,
   Settings,
   ChevronRight,
+  Cpu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -17,6 +18,12 @@ const ADMIN_MENU_ITEMS = [
     label: 'Dashboard',
     icon: LayoutDashboard,
     description: 'Overview and key metrics',
+  },
+  {
+    href: '/admin/transformers',
+    label: 'Transformers',
+    icon: Cpu,
+    description: 'Add, edit & delete transformers',
   },
   {
     href: '/admin/analytics',

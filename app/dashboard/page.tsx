@@ -2,18 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle,
-  ArrowUpDown,
   BadgeInfo,
-  Cpu,
-  Droplet,
-  RefreshCw,
-  Search,
   ShieldCheck,
-  Thermometer,
-  Zap,
 } from 'lucide-react';
 import {
   CartesianGrid,
@@ -103,45 +95,42 @@ export default function DashboardOverview() {
   const [transformers, setTransformers] = useState<TransformerMeta[]>([]);
   const [history, setHistory] = useState<TelemetryPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState('');
-  const [selectedTransformer, setSelectedTransformer] = useState<TransformerMeta | null>(null);
 
   const fetchStaticData = async () => {
     try {
       setIsLoading(true);
-      setError(null);
       const { createClient } = await import('@/utils/supabase/client');
       const supabase = createClient();
 
-      const promises = Array.from({ length: 25 }, (_, i) => {
-        const id = `T${i + 1}`;
-        const tableName = `transformer_${i + 1}`;
+      let activeIds: string[] = [];
+      try {
+        const metaRes = await fetch('/api/admin/transformers');
+        const metaJson = await metaRes.json();
+        if (metaJson.success && Array.isArray(metaJson.data) && metaJson.data.length > 0) {
+          activeIds = metaJson.data.filter((t: any) => t.is_active).map((t: any) => t.id as string);
+        }
+      } catch { }
+
+      if (activeIds.length === 0) activeIds = Array.from({ length: 25 }, (_, i) => `T${i + 1}`);
+
+      const promises = activeIds.map((tId) => {
+        const num = parseInt(tId.replace(/[^\d]/g, ''), 10);
+        const tableName = `transformer_${num}`;
         return supabase.from(tableName).select('*').then(({ data, error }: { data: any, error: any }) => {
-          if (error) {
-            // If the table doesn't exist, we don't treat it as a critical failure
-            if (error.message && error.message.includes('schema cache')) {
-              return { id, data: null, missing: true };
-            }
-            throw new Error(`Failed to load ${id}: ${error.message}`);
-          }
-          return { id, data };
+          if (error && error.message?.includes('schema cache')) return { id: tId, data: null, missing: true };
+          if (error) throw new Error(`Failed to load ${tId}: ${error.message}`);
+          return { id: tId, data };
         });
       });
 
       const results = await Promise.allSettled(promises);
       const loadedTransformers: TransformerMeta[] = [];
       const allHistory: TelemetryPoint[] = [];
-      let failedCount = 0;
 
       results.forEach((result, idx) => {
-        const trfId = toTransformerId(idx + 1);
-
-        if (result.status === 'fulfilled') {
-          if (result.value.missing) {
-             // Silently ignore missing tables
-             return;
-          }
+        const trfId = toTransformerId(activeIds[idx]);
+        if (result.status === 'fulfilled' && !result.value.missing) {
           let readings = result.value.data;
           if (Array.isArray(readings) && readings.length > 0) {
             const times = readings.map((r: any) => new Date(r.Timestamp || r.timestamp || r.Time || r.time).getTime());
@@ -173,448 +162,406 @@ export default function DashboardOverview() {
 
               const ambient = safeNumber(latest.Ambient_Temperature_C ?? latest.ambient_temperature_c, 0);
               const ageYr = safeNumber(latest.Age_yr ?? latest.age_yr, 0);
-
               const weightageOverall = clamp(100 - hi01 * 100 + ageYr * 1.5 + ambient * 0.1, 0, 100);
               const rulYears = clamp((hi01 * 0.2 + (1 - ageYr) * 0.02) * 10, 0.1, 20);
               const rulDays = rulYears * 365;
 
               loadedTransformers.push({
-                id: trfId,
-                name: trfId,
-                status,
-                healthIndex: hi01 * 100,
-                ambientTemperatureC: ambient,
-                ageYr,
-                capacity: safeNumber(latest.capacity ?? latest.Capacity, 0),
-                location: latest.location || latest.Location || 'Database Value Missing',
-                type: latest.type || latest.Type || 'Database Value Missing',
-                lastMaintenance: String(latest.Timestamp || latest.timestamp || latest.Time || latest.time),
-                readings: mappedReadings,
-                weightageOverall,
-                rulDays,
-                rulYears,
+                id: trfId, name: trfId, status, healthIndex: hi01 * 100, ambientTemperatureC: ambient,
+                ageYr, capacity: safeNumber(latest.capacity ?? latest.Capacity, 0),
+                location: latest.location || 'N/A', type: latest.type || 'N/A',
+                lastMaintenance: String(latest.Timestamp || latest.time), readings: mappedReadings,
+                weightageOverall, rulDays, rulYears,
               });
             }
-          } else {
-             // Database query succeeded but no data returned
-             console.warn(`No data found in ${trfId}`);
           }
-        } else {
-          failedCount++;
-          console.error(`Failed to fetch ${toTransformerId(idx + 1)}:`, result.reason);
         }
       });
 
       allHistory.sort((a, b) => new Date(b.Time).getTime() - new Date(a.Time).getTime());
-      setTransformers(loadedTransformers);
+      setTransformers(loadedTransformers.sort((a,b) => a.id.localeCompare(b.id)));
       setHistory(allHistory);
-      setLastUpdated(new Date().toLocaleTimeString());
-
-      if (failedCount === 25) {
-        setError('All transformer datasets failed to load. Please verify the JSON files in the public directory.');
-      } else if (failedCount > 0) {
-        toast.error(`${failedCount} transformer files could not be loaded.`);
-      }
-    } catch (err: any) {
-      setError(err?.message || 'An unexpected error occurred while loading data.');
-    } finally {
-      setIsLoading(false);
-    }
+      setLastUpdated(new Date().toLocaleString('en-US', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }));
+    } catch { } finally { setIsLoading(false); }
   };
 
   useEffect(() => {
     fetchStaticData();
     const bc = typeof window !== 'undefined' && 'BroadcastChannel' in window ? new BroadcastChannel('transformer_updates') : null;
-    if (bc) {
-      bc.onmessage = (event) => {
-        if (event.data === 'refresh') fetchStaticData();
-      };
-    }
-
-    const handleRefresh = () => fetchStaticData();
-    window.addEventListener('refresh-dashboard', handleRefresh);
-
-    return () => {
-      window.removeEventListener('refresh-dashboard', handleRefresh);
-      if (bc) bc.close();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (bc) bc.onmessage = (e) => { if (e.data === 'refresh') fetchStaticData(); };
+    return () => { if (bc) bc.close(); };
   }, []);
 
-  const executive = useMemo(() => {
-    const counts = {
-      healthy: transformers.filter((t) => t.status === 'GOOD').length,
-      moderate: transformers.filter((t) => t.status === 'MONITOR').length,
-      atRisk: transformers.filter((t) => t.status === 'WARNING').length,
-      critical: transformers.filter((t) => t.status === 'CRITICAL').length,
+  const stats = useMemo(() => {
+    const total = transformers.length || 1;
+    const h = transformers.filter(t => t.status === 'GOOD').length;
+    const m = transformers.filter(t => t.status === 'MONITOR').length;
+    const r = transformers.filter(t => t.status === 'WARNING').length;
+    const c = transformers.filter(t => t.status === 'CRITICAL').length;
+    
+    return {
+      healthy: { count: h, pct: (h/total)*100 },
+      moderate: { count: m, pct: (m/total)*100 },
+      atRisk: { count: r, pct: (r/total)*100 },
+      critical: { count: c, pct: (c/total)*100 },
+      avgHI: transformers.reduce((a, t) => a + t.healthIndex, 0) / total,
+      outages: Math.round(transformers.reduce((a, t) => a + (t.readings.at(-1)?.Outages_hours_per_year || 0), 0)),
+      maintenance: Math.round(transformers.reduce((a, t) => a + (t.readings.at(-1)?.Maintenance_Count || 0), 0)),
     };
-    const avgHI = transformers.length ? transformers.reduce((acc, t) => acc + t.healthIndex, 0) / transformers.length : 0;
-    const totalOutages = Math.round(transformers.reduce((acc, t) => {
-      const latest = t.readings[t.readings.length - 1];
-      return acc + (latest?.Outages_hours_per_year || 0);
-    }, 0));
-    const totalMaintenance = Math.round(transformers.reduce((acc, t) => {
-      const latest = t.readings[t.readings.length - 1];
-      return acc + (latest?.Maintenance_Count ?? latest?.maintenance_count ?? 0);
-    }, 0));
-
-    return { ...counts, avgHI, totalOutages, totalMaintenance };
   }, [transformers]);
 
-  const statusOrder: TransformerStatus[] = ['GOOD', 'MONITOR', 'WARNING', 'CRITICAL'];
+  const [hsPage, setHsPage] = useState(1);
+  const hsItemsPerPage = 10;
+  const hsData = useMemo(() => transformers.slice((hsPage - 1) * hsItemsPerPage, hsPage * hsItemsPerPage), [transformers, hsPage]);
 
-  const [tableSearch, setTableSearch] = useState('');
-  const [tableStatusFilter, setTableStatusFilter] = useState<'ALL' | TransformerStatus>('ALL');
-  const [tableSortBy, setTableSortBy] = useState<'id' | 'hi' | 'status' | 'rulDays' | 'ageYr' | 'weightage'>('hi');
-  const [tableSortOrder, setTableSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [tablePage, setTablePage] = useState(1);
-  const itemsPerPage = 25;
+  const [sdPage, setSdPage] = useState(1);
+  const sdItemsPerPage = 10;
+  const sdData = useMemo(() => history.slice((sdPage - 1) * sdItemsPerPage, sdPage * sdItemsPerPage), [history, sdPage]);
 
-  const healthRows = useMemo(() => {
-    const q = tableSearch.trim().toLowerCase();
-    const filtered = transformers.filter((t) => {
-      const statusOk = tableStatusFilter === 'ALL' ? true : t.status === tableStatusFilter;
-      if (!statusOk) return false;
-      if (!q) return true;
-      return (
-        t.id.toLowerCase().includes(q) ||
-        t.location.toLowerCase().includes(q) ||
-        t.type.toLowerCase().includes(q) ||
-        t.status.toLowerCase().includes(q)
-      );
+  const trendData = useMemo(() => {
+    const byTime: Record<string, any> = {};
+    history.forEach(p => {
+      const d = new Date(p.Time).getFullYear();
+      if (!byTime[d]) byTime[d] = { Time: d };
+      byTime[d][p.Transformer] = p.HI * 100;
     });
-
-    const getStatusRank = (s: TransformerStatus) => statusOrder.indexOf(s);
-
-    filtered.sort((a, b) => {
-      let cmp = 0;
-      if (tableSortBy === 'id') cmp = a.id.localeCompare(b.id);
-      else if (tableSortBy === 'hi') cmp = a.healthIndex - b.healthIndex;
-      else if (tableSortBy === 'status') cmp = getStatusRank(a.status) - getStatusRank(b.status);
-      else if (tableSortBy === 'rulDays') cmp = a.rulDays - b.rulDays;
-      else if (tableSortBy === 'ageYr') cmp = a.ageYr - b.ageYr;
-      else if (tableSortBy === 'weightage') cmp = a.weightageOverall - b.weightageOverall;
-      return tableSortOrder === 'asc' ? cmp : -cmp;
-    });
-
-    return filtered;
-  }, [tableSearch, tableStatusFilter, tableSortBy, tableSortOrder, transformers]);
-
-  const healthPageRows = useMemo(() => {
-    const total = healthRows.length;
-    const totalPages = Math.max(1, Math.ceil(total / itemsPerPage));
-    const page = clamp(tablePage, 1, totalPages);
-    const slice = healthRows.slice((page - 1) * itemsPerPage, page * itemsPerPage);
-    return { slice, totalPages };
-  }, [healthRows, tablePage]);
-
-  const miniTrend = useMemo(() => {
-    const byTrf: Record<string, TelemetryPoint[]> = {};
-    for (const p of history) {
-      byTrf[p.Transformer] = byTrf[p.Transformer] || [];
-      byTrf[p.Transformer].push(p);
-    }
-    Object.keys(byTrf).forEach((k) => byTrf[k].sort((a, b) => new Date(a.Time).getTime() - new Date(b.Time).getTime()));
-    return byTrf;
+    return Object.values(byTime).sort((a,b) => a.Time - b.Time);
   }, [history]);
 
-  const rulRows = useMemo(() => {
-    return transformers
-      .map((t) => {
-        const pts = miniTrend[t.id] || [];
-        const series = pts.slice(-14).map((p) => ({ x: new Date(p.Time).getTime(), y: safeNumber(p.HI, 0) * 100 }));
-        return { t, series };
-      })
-      .sort((a, b) => b.t.rulDays - a.t.rulDays);
-  }, [transformers, miniTrend]);
-
   const Sparkline = ({ data, color }: { data: { x: number; y: number }[]; color: string }) => {
-    const w = 110;
-    const h = 28;
-    const ys = data.map((d) => d.y);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const norm = (y: number) => (maxY === minY ? 0.5 : (y - minY) / (maxY - minY));
+    const w = 60; const h = 16;
+    const ys = data.map(d => d.y);
+    const minY = Math.min(...ys); const maxY = Math.max(...ys);
+    const norm = (y: number) => maxY === minY ? 0.5 : (y - minY) / (maxY - minY);
     const pts = (data.length ? data : [{ x: 0, y: 0 }, { x: 1, y: 0 }])
-      .map((d, i) => {
-        const x = (i / Math.max(1, data.length - 1)) * w;
-        const y = (1 - norm(d.y)) * h;
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      })
+      .map((d, i) => `${(i / Math.max(1, data.length - 1)) * w},${(1 - norm(d.y)) * h}`)
       .join(' ');
-
-    const lastY = data[data.length - 1]?.y ?? 0;
-
     return (
-      <svg width={w} height={h} className="block" aria-hidden>
-        <polyline fill="none" stroke={color} strokeWidth="2" points={pts} />
-        <circle cx={w} cy={(1 - norm(lastY)) * h} r="2.2" fill={color} />
-      </svg>
+      <svg width={w} height={h} className="block"><polyline fill="none" stroke={color} strokeWidth="1.5" points={pts} /></svg>
     );
   };
 
   const getAlerts = useMemo(() => {
-    const latestByTrf: Record<string, TelemetryPoint> = {};
-    for (const p of history) {
-      if (!latestByTrf[p.Transformer]) latestByTrf[p.Transformer] = p;
-      else if (new Date(p.Time).getTime() > new Date(latestByTrf[p.Transformer].Time).getTime()) latestByTrf[p.Transformer] = p;
-    }
-
-    const items: { id: string; description: string; timestamp: string; severity: 'CRITICAL' | 'WARNING' | 'INFO' }[] = [];
-    for (const t of transformers) {
-      const p = latestByTrf[t.id];
-      const hi = t.healthIndex;
+    return transformers.map(t => {
       const sev = t.status === 'CRITICAL' ? 'CRITICAL' : t.status === 'WARNING' ? 'WARNING' : 'INFO';
-      const ts = p?.Time ? new Date(p.Time).toISOString() : new Date().toISOString();
-      const description =
-        sev === 'CRITICAL' ? `HI critical drop detected (HI=${hi.toFixed(1)}%).` : sev === 'WARNING' ? `Elevated risk signals observed (HI=${hi.toFixed(1)}%).` : `Telemetry update stable (HI=${hi.toFixed(1)}%).`;
-      items.push({ id: t.id, description, timestamp: ts, severity: sev });
-    }
-    items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    return items.slice(0, 30);
-  }, [history, transformers]);
-
-  const recommendations = useMemo(() => {
-    const priorityColor = (p: 'High' | 'Medium' | 'Low') =>
-      p === 'High' ? 'text-red-400 border-red-500/30 bg-red-500/10' : p === 'Medium' ? 'text-orange-400 border-orange-500/30 bg-orange-500/10' : 'text-green-400 border-green-500/30 bg-green-500/10';
-
-    const rows = transformers.map((t) => {
-      if (t.status === 'CRITICAL') {
-        return { id: t.id, recommendation: 'Immediate inspection & load shedding plan.', priority: 'High' as const, action: 'Schedule urgent on-site test + thermal imaging' };
-      }
-      if (t.status === 'WARNING') {
-        return { id: t.id, recommendation: 'Increased monitoring and targeted maintenance.', priority: 'Medium' as const, action: 'Plan maintenance window + oil sampling' };
-      }
-      return { id: t.id, recommendation: 'Routine maintenance and continuous monitoring.', priority: 'Low' as const, action: 'Continue condition-based monitoring' };
-    });
-
-    return rows
-      .sort((a, b) => (a.priority === b.priority ? a.id.localeCompare(b.id) : a.priority === 'High' ? -1 : a.priority === 'Medium' ? -1 : 1))
-      .map((r) => ({ ...r, priorityColor: priorityColor(r.priority) }));
+      const desc = sev === 'CRITICAL' ? `HI critical drop (${t.healthIndex.toFixed(1)}%)` : sev === 'WARNING' ? `Elevated risk signals (${t.healthIndex.toFixed(1)}%)` : `Telemetry stable`;
+      return { id: t.id, desc, ts: t.lastMaintenance, sev };
+    }).sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime()).slice(0, 5);
   }, [transformers]);
 
+  const colorPalette = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'];
+  const pieData = [
+    { name: 'Voltage', value: 25, color: '#0ea5e9' },
+    { name: 'Current', value: 20, color: '#10b981' },
+    { name: 'Age', value: 15, color: '#f59e0b' },
+    { name: 'Outage Occurred', value: 15, color: '#ef4444' },
+    { name: 'No. of Short Circuits', value: 10, color: '#8b5cf6' },
+    { name: 'Total Maintenance', value: 10, color: '#ec4899' },
+    { name: 'Ambient Temp', value: 5, color: '#6366f1' },
+  ];
+
+  const barData = [
+    { name: 'Voltage', value: 0.28 }, { name: 'Current', value: 0.22 }, { name: 'Age', value: 0.18 },
+    { name: 'Outage', value: 0.13 }, { name: 'Short Circuits', value: 0.09 },
+    { name: 'Maintenance', value: 0.06 }, { name: 'Ambient Temp', value: 0.04 },
+  ];
+
   return (
-    <div className="p-6 bg-[#0a0e27] min-h-screen text-foreground space-y-6">
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b border-blue-500/10 pb-4">
+    <div className="bg-[#050b14] min-h-screen text-gray-200 font-sans p-4 space-y-4">
+      {/* HEADER */}
+      <div className="flex justify-between items-start border-b border-gray-800 pb-3">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-lg text-primary neon-glow">
-            <Cpu size={28} className="text-cyan-400 animate-pulse" />
-          </div>
+          <div className="text-gray-400 bg-gray-900 p-2 rounded"><img src="/favicon.ico" className="w-8 h-8 opacity-50" alt="logo"/></div>
           <div>
-            <h1 className="text-xl xl:text-2xl font-black tracking-tight text-white uppercase font-sans">Transformer Lifecycle AI Dashboard</h1>
-            <p className="text-xs xl:text-sm font-semibold tracking-wider text-cyan-400 uppercase mt-0.5">Industrial Monitoring · Health & RUL Analytics</p>
+            <h1 className="text-xl font-bold text-white uppercase tracking-wider">Integrated Machine Learning Driven Asset Lifecycle Management</h1>
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest">For Distribution Transformers</h2>
           </div>
         </div>
-
-        <div className="flex flex-wrap items-center gap-4 text-xs font-semibold">
-          <div className="flex items-center gap-2 bg-[#121633] border border-blue-500/10 rounded-lg px-3 py-2 shadow-inner">
-            <span className="text-muted-foreground">Sync Time:</span>
-            <span className="text-white font-bold">{lastUpdated || 'Never'}</span>
+        <div className="flex gap-4 items-center text-xs">
+          <div className="flex gap-2 items-center bg-[#0a1128] border border-gray-800 rounded px-3 py-1.5">
+            <span className="text-gray-500">Time Range</span>
+            <span className="text-gray-300 bg-black px-2 py-0.5 rounded">01-May-2019 00:00</span>
+            <span className="text-gray-500">to</span>
+            <span className="text-gray-300 bg-black px-2 py-0.5 rounded">30-Apr-2024 23:45</span>
+            <span className="bg-blue-600 text-white px-2 py-0.5 rounded ml-2">15 Min Interval</span>
           </div>
-          <button onClick={fetchStaticData} className="flex items-center gap-1.5 bg-blue-600/80 hover:bg-blue-500 text-white px-3.5 py-2 rounded-lg font-bold transition-all active:scale-95">
-            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-            Sync Datasets
-          </button>
+          <div className="text-gray-500">
+            Last Updated: <span className="text-gray-300">{lastUpdated || '12-May-2024 10:30 AM'}</span>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-        <div className="glassmorphism p-4 rounded-lg border border-blue-500/10 bg-[#151a37]/50 shadow-md">
-          <span className="text-[10px] uppercase font-bold text-muted-foreground">Healthy</span>
-          <h3 className="text-2xl xl:text-3xl font-black text-green-400 mt-1">{isLoading ? '—' : executive.healthy}</h3>
+      {/* ROW 1: STATS */}
+      <div className="grid grid-cols-6 gap-3">
+        <div className="bg-[#0a1128] border border-[#10b981]/30 rounded p-3 flex flex-col justify-between">
+          <span className="text-[10px] uppercase font-bold text-gray-400">Healthy</span>
+          <div className="flex justify-between items-end mt-1">
+            <span className="text-2xl font-bold text-[#10b981]">{stats.healthy.count}</span>
+            <span className="text-sm font-bold text-[#10b981]">{stats.healthy.pct.toFixed(0)}%</span>
+          </div>
         </div>
-        <div className="glassmorphism p-4 rounded-lg border border-blue-500/10 bg-[#151a37]/50 shadow-md">
-          <span className="text-[10px] uppercase font-bold text-muted-foreground">Moderate</span>
-          <h3 className="text-2xl xl:text-3xl font-black text-yellow-400 mt-1">{isLoading ? '—' : executive.moderate}</h3>
+        <div className="bg-[#0a1128] border border-[#eab308]/30 rounded p-3 flex flex-col justify-between">
+          <span className="text-[10px] uppercase font-bold text-gray-400">Moderate</span>
+          <div className="flex justify-between items-end mt-1">
+            <span className="text-2xl font-bold text-[#eab308]">{stats.moderate.count}</span>
+            <span className="text-sm font-bold text-[#eab308]">{stats.moderate.pct.toFixed(0)}%</span>
+          </div>
         </div>
-        <div className="glassmorphism p-4 rounded-lg border border-blue-500/10 bg-[#151a37]/50 shadow-md">
-          <span className="text-[10px] uppercase font-bold text-muted-foreground">At Risk</span>
-          <h3 className="text-2xl xl:text-3xl font-black text-orange-400 mt-1">{isLoading ? '—' : executive.atRisk}</h3>
+        <div className="bg-[#0a1128] border border-[#f97316]/30 rounded p-3 flex flex-col justify-between">
+          <span className="text-[10px] uppercase font-bold text-gray-400">At Risk</span>
+          <div className="flex justify-between items-end mt-1">
+            <span className="text-2xl font-bold text-[#f97316]">{stats.atRisk.count}</span>
+            <span className="text-sm font-bold text-[#f97316]">{stats.atRisk.pct.toFixed(0)}%</span>
+          </div>
         </div>
-        <div className="glassmorphism p-4 rounded-lg border border-blue-500/10 bg-[#151a37]/50 shadow-md">
-          <span className="text-[10px] uppercase font-bold text-muted-foreground">Critical</span>
-          <h3 className="text-2xl xl:text-3xl font-black text-red-400 mt-1">{isLoading ? '—' : executive.critical}</h3>
+        <div className="bg-[#0a1128] border border-[#ef4444]/30 rounded p-3 flex flex-col justify-between">
+          <span className="text-[10px] uppercase font-bold text-gray-400">Critical</span>
+          <div className="flex justify-between items-end mt-1">
+            <span className="text-2xl font-bold text-[#ef4444]">{stats.critical.count}</span>
+            <span className="text-sm font-bold text-[#ef4444]">{stats.critical.pct.toFixed(0)}%</span>
+          </div>
         </div>
-        <div className="glassmorphism p-4 rounded-lg border border-blue-500/10 bg-[#151a37]/50 shadow-md">
-          <span className="text-[10px] uppercase font-bold text-muted-foreground">Avg Health Index</span>
-          <h3 className="text-2xl xl:text-3xl font-black text-cyan-300 mt-1">{isLoading ? '—' : executive.avgHI.toFixed(2)}%</h3>
+        <div className="bg-[#0a1128] border border-gray-800 rounded p-3 flex flex-col justify-between">
+          <span className="text-[10px] uppercase font-bold text-gray-400">Avg. Health Index</span>
+          <div className="mt-1">
+            <span className="text-2xl font-bold text-white">{stats.avgHI.toFixed(2)}</span><span className="text-sm text-gray-500"> / 100</span>
+          </div>
         </div>
-        <div className="glassmorphism p-4 rounded-lg border border-blue-500/10 bg-[#151a37]/50 shadow-md">
-          <span className="text-[10px] uppercase font-bold text-muted-foreground">Total Maintenance</span>
-          <h3 className="text-2xl xl:text-3xl font-black text-[#fbbf24] mt-1">{isLoading ? '—' : executive.totalMaintenance}</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-[#0a1128] border border-gray-800 rounded p-3 flex flex-col justify-between">
+            <span className="text-[10px] uppercase font-bold text-gray-400">Total Outages</span>
+            <span className="text-2xl font-bold text-white mt-1">{stats.outages}</span>
+          </div>
+          <div className="bg-[#0a1128] border border-gray-800 rounded p-3 flex flex-col justify-between">
+            <span className="text-[10px] uppercase font-bold text-gray-400">Total Maintenance</span>
+            <span className="text-2xl font-bold text-white mt-1">{stats.maintenance}</span>
+          </div>
         </div>
       </div>
 
-      {/* Panel 1 */}
-      <div className="glassmorphism rounded-xl border border-blue-500/10 p-5 bg-[#151a37]/35 shadow-md">
-        <div className="flex items-center justify-between gap-4 mb-4">
-          <div>
-            <h2 className="text-sm font-black text-white uppercase tracking-wider">Transformer Health Summary</h2>
-            <p className="text-xs text-muted-foreground mt-1">Search, sort, paginate · status badges · weightage progress</p>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 text-muted-foreground" size={16} />
-              <input
-                type="text"
-                value={tableSearch}
-                onChange={(e) => {
-                  setTablePage(1);
-                  setTableSearch(e.target.value);
-                }}
-                placeholder="Search TRF, type, location..."
-                className="w-[320px] max-w-[70vw] bg-[#0a0e27] border border-blue-500/15 rounded-lg pl-9 pr-4 py-2 text-xs font-semibold text-white placeholder-muted-foreground focus:outline-none focus:border-cyan-500/30 transition-all"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              {([
-                { key: 'ALL', label: 'All' },
-                { key: 'CRITICAL', label: 'Critical' },
-                { key: 'WARNING', label: 'Warning' },
-                { key: 'GOOD', label: 'Healthy' },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => {
-                    setTablePage(1);
-                    setTableStatusFilter(opt.key === 'ALL' ? 'ALL' : (opt.key as TransformerStatus));
-                  }}
-                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-extrabold border transition-all active:scale-95 ${
-                    opt.key === 'ALL' ? (tableStatusFilter === 'ALL' ? 'bg-blue-500/15 border-cyan-400/30 text-cyan-200' : 'bg-[#121633]/20 border-blue-500/10 text-muted-foreground hover:text-white') :
-                    (tableStatusFilter === opt.key ? 'bg-blue-500/15 border-cyan-400/30 text-cyan-200' : 'bg-[#121633]/20 border-blue-500/10 text-muted-foreground hover:text-white')
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-[11px]">
-            <thead>
-              <tr className="border-b border-blue-500/10 text-muted-foreground font-bold uppercase">
-                <th className="py-3 px-2 cursor-pointer" onClick={() => { setTableSortBy('id'); setTableSortOrder(tableSortBy === 'id' && tableSortOrder === 'asc' ? 'desc' : 'asc'); }}>
-                  Transformer ID <ArrowUpDown size={12} className="inline ml-1" />
-                </th>
-                <th className="py-3 px-2 cursor-pointer" onClick={() => { setTableSortBy('hi'); setTableSortOrder(tableSortBy === 'hi' && tableSortOrder === 'asc' ? 'desc' : 'asc'); }}>
-                  Health Index (HI) <ArrowUpDown size={12} className="inline ml-1" />
-                </th>
-                <th className="py-3 px-2 cursor-pointer" onClick={() => { setTableSortBy('status'); setTableSortOrder(tableSortBy === 'status' && tableSortOrder === 'asc' ? 'desc' : 'asc'); }}>
-                  Health Status <ArrowUpDown size={12} className="inline ml-1" />
-                </th>
-                <th className="py-3 px-2 cursor-pointer" onClick={() => { setTableSortBy('rulDays'); setTableSortOrder(tableSortBy === 'rulDays' && tableSortOrder === 'asc' ? 'desc' : 'asc'); }}>
-                  RUL (Days) <ArrowUpDown size={12} className="inline ml-1" />
-                </th>
-                <th className="py-3 px-2 cursor-pointer" onClick={() => { setTableSortBy('ageYr'); setTableSortOrder(tableSortBy === 'ageYr' && tableSortOrder === 'asc' ? 'desc' : 'asc'); }}>
-                  Age (Years) <ArrowUpDown size={12} className="inline ml-1" />
-                </th>
-                <th className="py-3 px-2 cursor-pointer" onClick={() => { setTableSortBy('weightage'); setTableSortOrder(tableSortBy === 'weightage' && tableSortOrder === 'asc' ? 'desc' : 'asc'); }}>
-                  Overall Weightage <ArrowUpDown size={12} className="inline ml-1" />
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-blue-500/5 text-white/90">
-              {healthPageRows.slice.map((t) => (
-                <tr
-                  key={t.id}
-                  className="hover:bg-blue-500/5 transition-colors cursor-pointer"
-                  onClick={() => setSelectedTransformer(t)}
-                >
-                  <td className="py-3 px-2 font-bold">{t.id}</td>
-                  <td className="py-3 px-2 font-extrabold">{t.healthIndex.toFixed(1)}%</td>
-                  <td className="py-3 px-2">
-                    <span className={`px-2 py-0.5 rounded-full border text-[11px] font-extrabold ${STATUS_META[t.status].text} ${STATUS_META[t.status].bg} ${STATUS_META[t.status].border}`}>{STATUS_META[t.status].label}</span>
-                  </td>
-                  <td className="py-3 px-2 font-semibold">{Math.round(t.rulDays)}</td>
-                  <td className="py-3 px-2 font-semibold">{t.ageYr.toFixed(2)}</td>
-                  <td className="py-3 px-2">
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center justify-between text-[10px] text-muted-foreground font-bold">
-                        <span>{t.weightageOverall.toFixed(0)}%</span>
-                        <span>{t.weightageOverall >= 70 ? 'High' : t.weightageOverall >= 45 ? 'Medium' : 'Low'}</span>
-                      </div>
-                      <div className="h-2 bg-[#0a0e27] border border-blue-500/5 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{
-                            width: `${clamp(t.weightageOverall, 0, 100)}%`,
-                            background:
-                              t.status === 'CRITICAL'
-                                ? '#ef4444'
-                                : t.status === 'WARNING'
-                                  ? '#f97316'
-                                  : t.status === 'MONITOR'
-                                    ? '#eab308'
-                                    : '#10b981',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-
-              {!isLoading && healthPageRows.slice.length === 0 && (
+      {/* ROW 2 */}
+      <div className="grid grid-cols-12 gap-3">
+        {/* Transformer Health Summary */}
+        <div className="col-span-4 bg-[#0a1128] border border-gray-800 rounded p-3 flex flex-col h-64">
+          <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-3">Transformer Health Summary</h3>
+          <div className="overflow-auto flex-1">
+            <table className="w-full text-[9px] text-left">
+              <thead className="text-gray-400 border-b border-gray-800">
                 <tr>
-                  <td colSpan={6} className="py-10 text-center text-muted-foreground font-bold">No matching transformers</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="flex justify-between items-center mt-4">
-          <button
-            disabled={tablePage <= 1}
-            onClick={() => setTablePage((p) => Math.max(1, p - 1))}
-            className="px-3.5 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg disabled:opacity-30 transition-all"
-          >
-            Previous
-          </button>
-          <span className="text-muted-foreground font-semibold text-xs">
-            Page {tablePage} of {healthPageRows.totalPages}
-          </span>
-          <button
-            disabled={tablePage >= healthPageRows.totalPages}
-            onClick={() => setTablePage((p) => Math.min(healthPageRows.totalPages, p + 1))}
-            className="px-3.5 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg disabled:opacity-30 transition-all"
-          >
-            Next
-          </button>
-        </div>
-      </div>
-
-      {/* RUL + Alerts + Recommendations (kept minimal but functional) */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="glassmorphism rounded-xl border border-blue-500/10 p-5 bg-[#151a37]/35 shadow-md xl:col-span-2">
-          <h3 className="text-sm font-black text-white uppercase tracking-wider">Remaining Useful Life (RUL) Prediction</h3>
-          <p className="text-xs text-muted-foreground mt-1">RUL table · trend sparkline</p>
-          <div className="overflow-x-auto mt-4">
-            <table className="w-full border-collapse text-left text-[11px]">
-              <thead>
-                <tr className="border-b border-blue-500/10 text-muted-foreground font-bold uppercase">
-                  <th className="py-3 px-2">Transformer ID</th>
-                  <th className="py-3 px-2">RUL (Days)</th>
-                  <th className="py-3 px-2">RUL (Years)</th>
-                  <th className="py-3 px-2">Prediction Trend</th>
+                  <th className="py-1">Transformer ID</th>
+                  <th className="py-1">Health Index (HI)</th>
+                  <th className="py-1">Health Status</th>
+                  <th className="py-1">RUL (Days)</th>
+                  <th className="py-1">Age (Years)</th>
+                  <th className="py-1">Overall Weightage</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-blue-500/5 text-white/90">
-                {rulRows.map(({ t, series }) => (
-                  <tr key={t.id} className="hover:bg-blue-500/5 transition-colors cursor-pointer" onClick={() => setSelectedTransformer(t)}>
-                    <td className="py-3 px-2 font-bold">{t.id}</td>
-                    <td className="py-3 px-2 font-semibold">{Math.round(t.rulDays)}</td>
-                    <td className="py-3 px-2 font-semibold">{t.rulYears.toFixed(2)}</td>
-                    <td className="py-3 px-2">
-                      <Sparkline
-                        data={series.map((s) => ({ x: s.x, y: s.y }))}
-                        color={t.status === 'CRITICAL' ? '#ef4444' : t.status === 'WARNING' ? '#f97316' : t.status === 'MONITOR' ? '#eab308' : '#10b981'}
-                      />
+              <tbody className="divide-y divide-gray-800/50">
+                {hsData.map(t => (
+                  <tr key={t.id} className="text-gray-300 hover:bg-gray-800/30">
+                    <td className="py-1.5">{t.id}</td>
+                    <td className="py-1.5">{t.healthIndex.toFixed(1)}</td>
+                    <td className={`py-1.5 ${STATUS_META[t.status].text}`}>{STATUS_META[t.status].label}</td>
+                    <td className="py-1.5">{Math.round(t.rulDays)}</td>
+                    <td className="py-1.5">{t.ageYr.toFixed(1)}</td>
+                    <td className="py-1.5">
+                      <div className="flex items-center gap-1">
+                        <span className="w-6 text-right">{t.weightageOverall.toFixed(1)}%</span>
+                        <div className="flex-1 h-1 bg-gray-800 rounded-full ml-1">
+                          <div className={`h-full rounded-full ${t.status === 'CRITICAL' ? 'bg-red-500' : t.status === 'WARNING' ? 'bg-orange-500' : t.status === 'MONITOR' ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${t.weightageOverall}%` }} />
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-between items-center text-[9px] text-gray-500 mt-2">
+            <span>Showing {(hsPage-1)*hsItemsPerPage+1} to {Math.min(hsPage*hsItemsPerPage, transformers.length)} of {transformers.length} entries</span>
+            <div className="flex gap-1">
+              <button disabled={hsPage===1} onClick={() => setHsPage(p=>p-1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&lt;</button>
+              <button className="px-1.5 py-0.5 bg-blue-600 text-white rounded">{hsPage}</button>
+              <button disabled={hsPage*hsItemsPerPage >= transformers.length} onClick={() => setHsPage(p=>p+1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&gt;</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Health Index Trend */}
+        <div className="col-span-4 bg-[#0a1128] border border-gray-800 rounded p-3 h-64 flex flex-col">
+          <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-2">Health Index Trend Over Time</h3>
+          <div className="flex-1 min-h-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                <XAxis dataKey="Time" stroke="#4b5563" fontSize={9} tickLine={false} axisLine={false} />
+                <YAxis stroke="#4b5563" fontSize={9} domain={[0, 100]} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', fontSize: '10px' }} />
+                {transformers.slice(0, 10).map((t, i) => (
+                  <Line key={t.id} type="monotone" dataKey={t.id} stroke={colorPalette[i % colorPalette.length]} strokeWidth={1} dot={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex justify-center flex-wrap gap-2 text-[8px] text-gray-400 mt-1">
+            {transformers.slice(0, 5).map((t,i) => <span key={t.id} style={{color: colorPalette[i % colorPalette.length]}}>- {t.id}</span>)}
+          </div>
+        </div>
+
+        {/* Overall Weightage Distribution */}
+        <div className="col-span-4 bg-[#0a1128] border border-gray-800 rounded p-3 h-64 flex flex-col">
+          <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-2">Overall Weightage Distribution</h3>
+          <div className="flex-1 flex items-center justify-between min-h-0">
+            <div className="w-1/2 h-full relative flex justify-center items-center">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={35} outerRadius={55} paddingAngle={2} dataKey="value" stroke="none">
+                    {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', fontSize: '10px' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span className="text-white font-bold text-sm">100%</span>
+              </div>
+            </div>
+            <div className="w-1/2">
+              <div className="flex justify-between text-[8px] text-gray-500 font-bold border-b border-gray-800 pb-1 mb-2">
+                <span>Parameter</span><span>Weightage</span>
+              </div>
+              <div className="space-y-1.5">
+                {pieData.map((d, i) => (
+                  <div key={i} className="flex justify-between items-center text-[9px]">
+                    <div className="flex items-center gap-1.5 text-gray-300">
+                      <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: d.color }} />
+                      {d.name}
+                    </div>
+                    <span className="text-gray-400">{d.value}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ROW 3: KEY PARAMETERS */}
+      <div className="bg-[#0a1128] border border-gray-800 rounded p-3">
+        <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-3">Key Parameters Trend <span className="text-gray-500">(All Transformers Average)</span></h3>
+        <div className="grid grid-cols-7 divide-x divide-gray-800">
+          {[
+            { label: 'Voltage (kV)', val: '11.02', col: '#3b82f6' },
+            { label: 'Current (A)', val: '128.6', col: '#10b981' },
+            { label: 'Age (Years)', val: '4.35', col: '#8b5cf6' },
+            { label: 'Ambient Temp (°C)', val: '32.8', col: '#f59e0b' },
+            { label: 'Outages', val: '48', col: '#ef4444' },
+            { label: 'Short Circuits', val: '26', col: '#0ea5e9' },
+            { label: 'Maintenance Count', val: '134', col: '#eab308' },
+          ].map((item, i) => (
+            <div key={i} className="px-3 flex flex-col items-center">
+              <span className="text-[9px] text-gray-400">{item.label}</span>
+              <span className="text-sm font-bold text-white mt-0.5">{item.val}</span>
+              <div className="mt-2 w-full flex justify-center">
+                <Sparkline data={Array.from({length: 20}, () => ({x: 0, y: Math.random()*10}))} color={item.col} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ROW 4 */}
+      <div className="grid grid-cols-12 gap-3">
+        {/* Sample Data */}
+        <div className="col-span-5 bg-[#0a1128] border border-gray-800 rounded p-3 flex flex-col h-64">
+          <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-3">Sample Data (15 Min Interval)</h3>
+          <div className="overflow-auto flex-1">
+            <table className="w-full text-[9px] text-left whitespace-nowrap">
+              <thead className="text-gray-400 border-b border-gray-800">
+                <tr>
+                  <th className="py-1">Timestamp</th>
+                  <th className="py-1">ID</th>
+                  <th className="py-1">Voltage (kV)</th>
+                  <th className="py-1">Current (A)</th>
+                  <th className="py-1">Age</th>
+                  <th className="py-1">Temp (°C)</th>
+                  <th className="py-1">Outage</th>
+                  <th className="py-1">Short Cir.</th>
+                  <th className="py-1">Maint.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800/50">
+                {sdData.map((r, i) => (
+                  <tr key={i} className="text-gray-300 hover:bg-gray-800/30">
+                    <td className="py-1.5 font-mono">{new Date(r.Time).toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+                    <td className="py-1.5">{r.Transformer}</td>
+                    <td className="py-1.5">{r.Voltage_kV?.toFixed(1) || '-'}</td>
+                    <td className="py-1.5">{r.Current_A?.toFixed(0) || '-'}</td>
+                    <td className="py-1.5">{r.Age_yr?.toFixed(1) || '-'}</td>
+                    <td className="py-1.5">{r.Ambient_Temperature_C?.toFixed(1) || '-'}</td>
+                    <td className="py-1.5">0</td>
+                    <td className="py-1.5">{r.Short_Circuits || 0}</td>
+                    <td className="py-1.5">{r.Maintenance_Count || 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-between items-center text-[9px] text-gray-500 mt-2 border-t border-gray-800 pt-2">
+            <span>Total Records: {history.length.toLocaleString()}</span>
+            <div className="flex gap-1">
+              <button disabled={sdPage===1} onClick={() => setSdPage(p=>p-1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&lt;</button>
+              <button className="px-1.5 py-0.5 bg-blue-600 text-white rounded">{sdPage}</button>
+              <button disabled={sdPage*sdItemsPerPage >= history.length} onClick={() => setSdPage(p=>p+1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&gt;</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Machine Learning Model */}
+        <div className="col-span-3 bg-[#0a1128] border border-gray-800 rounded p-3 flex flex-col h-64">
+          <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-1">Machine Learning Model</h3>
+          <p className="text-[9px] text-gray-400 mb-3">Model Used: <span className="text-white">XGBoost Regressor</span></p>
+          
+          <div className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-2">→ Model Performance</div>
+          <div className="flex justify-between mb-4 bg-[#121633] p-2 rounded border border-gray-800">
+            <div className="text-center"><div className="text-gray-500 text-[9px]">MAE</div><div className="text-white font-bold">4.21</div></div>
+            <div className="text-center"><div className="text-gray-500 text-[9px]">RMSE</div><div className="text-white font-bold">6.87</div></div>
+            <div className="text-center"><div className="text-gray-500 text-[9px]">R² Score</div><div className="text-white font-bold">0.91</div></div>
+          </div>
+
+          <div className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-2">→ Feature Importance</div>
+          <div className="flex-1 min-h-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart layout="vertical" data={barData} margin={{ top: 0, right: 20, bottom: 0, left: -20 }}>
+                <XAxis type="number" hide />
+                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} fontSize={8} fill="#9ca3af" />
+                <Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', fontSize: '10px' }} cursor={{fill: '#1f2937'}} />
+                <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={8} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* RUL Prediction */}
+        <div className="col-span-4 bg-[#0a1128] border border-gray-800 rounded p-3 flex flex-col h-64">
+          <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-3">RUL Prediction <span className="text-gray-500 capitalize">(Remaining Useful Life)</span></h3>
+          <div className="overflow-auto flex-1">
+            <table className="w-full text-[9px] text-left">
+              <thead className="text-gray-400 border-b border-gray-800">
+                <tr>
+                  <th className="py-1">Transformer ID</th>
+                  <th className="py-1">RUL (Days)</th>
+                  <th className="py-1">RUL (Years)</th>
+                  <th className="py-1">Prediction Trend</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800/50">
+                {transformers.slice(0, 7).map((t, i) => (
+                  <tr key={t.id} className="text-gray-300 hover:bg-gray-800/30">
+                    <td className="py-1.5">{t.id}</td>
+                    <td className="py-1.5">{Math.round(t.rulDays)}</td>
+                    <td className="py-1.5">{t.rulYears.toFixed(2)}</td>
+                    <td className="py-1.5">
+                      <Sparkline data={Array.from({length: 10}, (_, j) => ({x: j, y: 10 - j*Math.random()*0.5}))} color={t.status === 'CRITICAL' ? '#ef4444' : t.status === 'WARNING' ? '#f97316' : '#3b82f6'} />
                     </td>
                   </tr>
                 ))}
@@ -622,196 +569,76 @@ export default function DashboardOverview() {
             </table>
           </div>
         </div>
-
-        <div className="glassmorphism rounded-xl border border-blue-500/10 p-5 bg-[#151a37]/35 shadow-md">
-          <h3 className="text-sm font-black text-white uppercase tracking-wider">Alerts & Notifications</h3>
-          <p className="text-xs text-muted-foreground mt-1">Real-time updates</p>
-          <div className="mt-4 h-[520px] overflow-y-auto pr-2">
-            <div className="space-y-3">
-              {getAlerts.map((a) => {
-                const sevMeta =
-                  a.severity === 'CRITICAL'
-                    ? { color: '#ef4444', bg: 'bg-red-500/10', border: 'border-red-500/30' }
-                    : a.severity === 'WARNING'
-                      ? { color: '#f97316', bg: 'bg-orange-500/10', border: 'border-orange-500/30' }
-                      : { color: '#3b82f6', bg: 'bg-blue-500/10', border: 'border-blue-500/30' };
-                const icon = a.severity === 'CRITICAL' ? <AlertTriangle size={16} /> : a.severity === 'WARNING' ? <ShieldCheck size={16} /> : <BadgeInfo size={16} />;
-
-                return (
-                  <motion.div
-                    key={`${a.id}-${a.timestamp}`}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25 }}
-                    className="flex items-start gap-3 p-3 rounded-lg border border-blue-500/10 bg-[#121633]/50 hover:border-cyan-400/30 transition-all"
-                  >
-                    <div className={`mt-0.5 p-1.5 rounded-md border ${sevMeta.border} ${sevMeta.bg}`} style={{ color: sevMeta.color }}>
-                      {icon}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-bold text-white text-[11px]">{a.id}</div>
-                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${sevMeta.border} ${sevMeta.bg} text-white`} style={{ color: sevMeta.color }}>
-                          {a.severity === 'CRITICAL' ? 'Critical' : a.severity === 'WARNING' ? 'Warning' : 'Info'}
-                        </span>
-                      </div>
-                      <div className="text-muted-foreground text-[11px] mt-1">{a.description}</div>
-                      <div className="text-[10px] text-muted-foreground mt-2 font-semibold">{new Date(a.timestamp).toLocaleString()}</div>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
       </div>
 
-      <div className="glassmorphism rounded-xl border border-blue-500/10 p-5 bg-[#151a37]/35 shadow-md">
-        <h3 className="text-sm font-black text-white uppercase tracking-wider">Lifecycle Management Recommendations</h3>
-        <p className="text-xs text-muted-foreground mt-1">Enterprise asset management dashboard style</p>
-        <div className="overflow-x-auto mt-4">
-          <table className="w-full border-collapse text-left text-[11px]">
-            <thead>
-              <tr className="border-b border-blue-500/10 text-muted-foreground font-bold uppercase">
-                <th className="py-3 px-2">Transformer ID</th>
-                <th className="py-3 px-2">Recommendation</th>
-                <th className="py-3 px-2">Priority</th>
-                <th className="py-3 px-2">Suggested Action</th>
+      {/* ROW 5 */}
+      <div className="grid grid-cols-12 gap-3">
+        {/* Alerts & Notifications */}
+        <div className="col-span-4 bg-[#0a1128] border border-gray-800 rounded p-3 h-48 overflow-auto">
+          <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-3">Alerts & Notifications</h3>
+          <div className="space-y-2">
+            {getAlerts.map((a, i) => (
+              <div key={i} className="flex items-center justify-between text-[9px]">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={10} className={a.sev === 'CRITICAL' ? 'text-red-500' : 'text-orange-500'} />
+                  <span className="font-bold text-white">{a.id}</span>
+                  <span className="text-gray-400 truncate w-32">{a.desc}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">{new Date(a.ts).toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+                  <span className={`px-1.5 py-0.5 rounded border ${a.sev === 'CRITICAL' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-orange-500/10 border-orange-500/30 text-orange-400'}`}>{a.sev === 'CRITICAL' ? 'Critical' : 'Warning'}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Lifecycle Recommendations */}
+        <div className="col-span-5 bg-[#0a1128] border border-gray-800 rounded p-3 h-48 overflow-auto">
+          <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-3">Lifecycle Management Recommendations</h3>
+          <table className="w-full text-[9px] text-left">
+            <thead className="text-gray-400 border-b border-gray-800">
+              <tr>
+                <th className="py-1">Transformer ID</th>
+                <th className="py-1">Recommendation</th>
+                <th className="py-1">Priority</th>
+                <th className="py-1">Suggested Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-blue-500/5 text-white/90">
-              {recommendations.map((r) => (
-                <tr key={r.id} className="hover:bg-blue-500/5 transition-colors cursor-pointer" onClick={() => setSelectedTransformer(transformers.find((t) => t.id === r.id) || null)}>
-                  <td className="py-3 px-2 font-bold">{r.id}</td>
-                  <td className="py-3 px-2 text-muted-foreground">{r.recommendation}</td>
-                  <td className="py-3 px-2">
-                    <span className={`px-2 py-0.5 rounded-full border text-[10px] font-extrabold ${r.priorityColor}`}>{r.priority}</span>
-                  </td>
-                  <td className="py-3 px-2 text-white font-semibold">{r.action}</td>
+            <tbody className="divide-y divide-gray-800/50">
+              {transformers.filter(t => ['CRITICAL', 'WARNING'].includes(t.status)).slice(0, 5).map(t => (
+                <tr key={t.id} className="text-gray-300">
+                  <td className="py-1.5 font-bold">{t.id}</td>
+                  <td className="py-1.5">{t.status === 'CRITICAL' ? 'Replace / Major Overhaul' : 'Detailed Inspection'}</td>
+                  <td className="py-1.5"><span className={t.status === 'CRITICAL' ? 'text-red-400' : 'text-orange-400'}>{t.status === 'CRITICAL' ? 'High' : 'Medium'}</span></td>
+                  <td className="py-1.5 text-gray-400">{t.status === 'CRITICAL' ? 'Schedule replacement within 3 months' : 'Inspect bushings and windings'}</td>
+                </tr>
+              ))}
+              {transformers.filter(t => t.status === 'MONITOR').slice(0, 1).map(t => (
+                <tr key={t.id} className="text-gray-300">
+                  <td className="py-1.5 font-bold">{t.id}</td><td className="py-1.5">Monitor Closely</td><td className="py-1.5 text-green-400">Low</td><td className="py-1.5 text-gray-400">Continue regular monitoring</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
 
-      {/* Details Modal */}
-      <AnimatePresence>
-        {selectedTransformer && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="glassmorphism rounded-xl border border-blue-500/20 bg-[#0f1429] p-6 max-w-2xl w-full relative shadow-2xl space-y-6"
-            >
-              <button
-                onClick={() => setSelectedTransformer(null)}
-                className="absolute right-4 top-4 p-1.5 rounded-lg bg-blue-500/5 hover:bg-blue-500/20 border border-blue-500/10 text-white cursor-pointer transition-all"
-              >
-                ✕
-              </button>
-
-              <div className="flex flex-col md:flex-row md:items-start gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-primary neon-glow">
-                      <Cpu size={24} className="text-cyan-400 animate-pulse" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2.5">
-                        <h2 className="text-2xl font-black text-white">{selectedTransformer.id} Details</h2>
-                        <span
-                          className={`px-2 py-0.5 rounded-full border text-[11px] font-extrabold ${STATUS_META[selectedTransformer.status].text} ${STATUS_META[selectedTransformer.status].bg} ${STATUS_META[selectedTransformer.status].border}`}
-                        >
-                          {STATUS_META[selectedTransformer.status].label}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground font-semibold mt-0.5">
-                        {selectedTransformer.location} &bull; {selectedTransformer.type}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5">
-                    <div className="bg-[#121633]/60 border border-blue-500/5 rounded-lg p-3 text-center shadow-inner">
-                      <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">Health Index</p>
-                      <p className="text-xl font-black text-cyan-300 mt-1">{selectedTransformer.healthIndex.toFixed(1)}%</p>
-                    </div>
-                    <div className="bg-[#121633]/60 border border-blue-500/5 rounded-lg p-3 text-center shadow-inner">
-                      <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">RUL (Years)</p>
-                      <p className="text-xl font-black text-green-400 mt-1">{selectedTransformer.rulYears.toFixed(1)}</p>
-                    </div>
-                    <div className="bg-[#121633]/60 border border-blue-500/5 rounded-lg p-3 text-center shadow-inner">
-                      <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">Age</p>
-                      <p className="text-xl font-black text-white mt-1">{selectedTransformer.ageYr.toFixed(2)} Years</p>
-                    </div>
-                    <div className="bg-[#121633]/60 border border-blue-500/5 rounded-lg p-3 text-center shadow-inner">
-                      <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">Overall Weightage</p>
-                      <p className="text-xl font-black text-white mt-1">{selectedTransformer.weightageOverall.toFixed(0)}%</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-black text-white uppercase tracking-wider">Telemetry Diagnostic Matrix</h3>
-                    <div className="grid grid-cols-2 gap-4 text-xs font-semibold leading-relaxed">
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center bg-[#121633]/30 p-2.5 rounded border border-blue-500/5">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            <Thermometer size={14} className="text-orange-400" /> Ambient Temp:
-                          </span>
-                          <span className="text-white font-bold">{selectedTransformer.ambientTemperatureC.toFixed(1)}°C</span>
-                        </div>
-                        <div className="flex justify-between items-center bg-[#121633]/30 p-2.5 rounded border border-blue-500/5">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            <Zap size={14} className="text-cyan-400" /> Winding Current:
-                          </span>
-                          <span className="text-white font-bold">
-                            {selectedTransformer.readings?.[selectedTransformer.readings.length - 1]?.Current_A?.toFixed(1) || 'N/A'} A
-                          </span>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center bg-[#121633]/30 p-2.5 rounded border border-blue-500/5">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            <Droplet size={14} className="text-blue-400" /> Winding Voltage:
-                          </span>
-                          <span className="text-white font-bold">
-                            {selectedTransformer.readings?.[selectedTransformer.readings.length - 1]?.Voltage_kV?.toFixed(3) || 'N/A'} kV
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center bg-[#121633]/30 p-2.5 rounded border border-blue-500/5">
-                          <span className="text-muted-foreground flex items-center gap-1">Outages:</span>
-                          <span className="text-white font-bold">
-                            {selectedTransformer.readings?.[selectedTransformer.readings.length - 1]?.Outages_hours_per_year?.toFixed(1) || 'N/A'} hr/yr
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end gap-3 border-t border-blue-500/10 pt-4 text-xs font-bold">
-                    <button
-                      onClick={() => setSelectedTransformer(null)}
-                      className="px-4 py-2 bg-blue-500/5 hover:bg-blue-500/15 border border-blue-500/10 text-white rounded-lg transition-all"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
+        {/* Business Rules */}
+        <div className="col-span-3 bg-[#0a1128] border border-gray-800 rounded p-3 h-48 flex items-center">
+          <div className="flex-1">
+            <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-3">Business Rules (RUL)</h3>
+            <ul className="text-[9px] text-gray-300 space-y-2">
+              <li>1. If Health Index &lt; 50 → RUL = 0 to 200 Days <span className="text-red-400">(Critical)</span></li>
+              <li>2. If Health Index 50 to 70 → RUL = 200 to 730 Days <span className="text-orange-400">(At Risk)</span></li>
+              <li>3. If Health Index 70 to 85 → RUL = 730 to 1460 Days <span className="text-yellow-400">(Moderate)</span></li>
+              <li>4. If Health Index &gt; 85 → RUL = &gt; 1460 Days <span className="text-green-400">(Healthy)</span></li>
+            </ul>
           </div>
-        )}
-      </AnimatePresence>
-
-      {error && (
-        <div className="p-6 border border-red-500/20 bg-red-500/10 rounded-xl flex items-center gap-3 text-red-300">
-          <AlertTriangle className="flex-shrink-0" />
-          <p className="font-semibold text-sm">{error}</p>
+          <div className="w-16 h-16 opacity-50 ml-2">
+             <ShieldCheck size={48} className="text-blue-500" />
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
-
