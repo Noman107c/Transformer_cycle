@@ -228,6 +228,29 @@ export default function DashboardOverview() {
     return Object.values(byTime).sort((a,b) => a.Time - b.Time);
   }, [history]);
 
+  // Deterministic sparkline data derived from real history — no Math.random()
+  const keyParamSparklines = useMemo(() => {
+    if (history.length === 0) return null;
+    const recent = history.slice(-200);
+    const buckets = 20;
+    const size = Math.max(1, Math.floor(recent.length / buckets));
+    const make = (key: keyof typeof recent[0]) =>
+      Array.from({ length: buckets }, (_, i) => {
+        const slice = recent.slice(i * size, (i + 1) * size);
+        const avg = slice.reduce((s, r) => s + (Number(r[key]) || 0), 0) / (slice.length || 1);
+        return { x: i, y: avg };
+      });
+    return {
+      Voltage_kV: make('Voltage_kV'),
+      Current_A: make('Current_A'),
+      Age_yr: make('Age_yr'),
+      Ambient_Temperature_C: make('Ambient_Temperature_C'),
+      Outages_hours_per_year: make('Outages_hours_per_year'),
+      Short_Circuits: make('Short_Circuits'),
+      Maintenance_Count: make('Maintenance_Count'),
+    };
+  }, [history]);
+
   const Sparkline = ({ data, color }: { data: { x: number; y: number }[]; color: string }) => {
     const w = 60; const h = 16;
     const ys = data.map(d => d.y);
@@ -450,19 +473,22 @@ export default function DashboardOverview() {
         <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-3">Key Parameters Trend <span className="text-gray-500">(All Transformers Average)</span></h3>
         <div className="grid grid-cols-7 divide-x divide-gray-800">
           {[
-            { label: 'Voltage (kV)', val: '11.02', col: '#3b82f6' },
-            { label: 'Current (A)', val: '128.6', col: '#10b981' },
-            { label: 'Age (Years)', val: '4.35', col: '#8b5cf6' },
-            { label: 'Ambient Temp (°C)', val: '32.8', col: '#f59e0b' },
-            { label: 'Outages', val: '48', col: '#ef4444' },
-            { label: 'Short Circuits', val: '26', col: '#0ea5e9' },
-            { label: 'Maintenance Count', val: '134', col: '#eab308' },
+            { label: 'Voltage (kV)', key: 'Voltage_kV', val: '11.02', col: '#3b82f6' },
+            { label: 'Current (A)', key: 'Current_A', val: '128.6', col: '#10b981' },
+            { label: 'Age (Years)', key: 'Age_yr', val: '4.35', col: '#8b5cf6' },
+            { label: 'Ambient Temp (°C)', key: 'Ambient_Temperature_C', val: '32.8', col: '#f59e0b' },
+            { label: 'Outages', key: 'Outages_hours_per_year', val: '48', col: '#ef4444' },
+            { label: 'Short Circuits', key: 'Short_Circuits', val: '26', col: '#0ea5e9' },
+            { label: 'Maintenance Count', key: 'Maintenance_Count', val: '134', col: '#eab308' },
           ].map((item, i) => (
             <div key={i} className="px-3 flex flex-col items-center">
               <span className="text-[9px] text-gray-400">{item.label}</span>
               <span className="text-sm font-bold text-white mt-0.5">{item.val}</span>
               <div className="mt-2 w-full flex justify-center">
-                <Sparkline data={Array.from({length: 20}, () => ({x: 0, y: Math.random()*10}))} color={item.col} />
+                <Sparkline
+                  data={keyParamSparklines ? (keyParamSparklines as any)[item.key] ?? [] : []}
+                  color={item.col}
+                />
               </div>
             </div>
           ))}
@@ -561,7 +587,10 @@ export default function DashboardOverview() {
                     <td className="py-1.5">{Math.round(t.rulDays)}</td>
                     <td className="py-1.5">{t.rulYears.toFixed(2)}</td>
                     <td className="py-1.5">
-                      <Sparkline data={Array.from({length: 10}, (_, j) => ({x: j, y: 10 - j*Math.random()*0.5}))} color={t.status === 'CRITICAL' ? '#ef4444' : t.status === 'WARNING' ? '#f97316' : '#3b82f6'} />
+                      <Sparkline
+                        data={t.readings.slice(-10).map((r, j) => ({ x: j, y: safeNumber(r.Predicted_HI ?? r.HI, 0) * 100 }))}
+                        color={t.status === 'CRITICAL' ? '#ef4444' : t.status === 'WARNING' ? '#f97316' : '#3b82f6'}
+                      />
                     </td>
                   </tr>
                 ))}
