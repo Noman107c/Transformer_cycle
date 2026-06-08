@@ -22,7 +22,7 @@ export async function GET(request: Request) {
       
       const numMatch = row.id.match(/\d+/);
       if (numMatch) {
-         const tableName = `transformer_${numMatch[0]}`;
+         const tableName = `transformer_${parseInt(numMatch[0], 10)}`;
          try {
            const [latest] = await sql`
              SELECT "HI", "Ambient_Temperature_C", "Age_yr", "Timestamp"
