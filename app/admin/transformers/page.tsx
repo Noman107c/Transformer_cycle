@@ -33,7 +33,11 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const DEFAULT_FORM = {
-  id: '', name: '', location: '', type: 'Distribution', capacity: 50, status: 'GOOD',
+  name: '',
+  location: '',
+  type: 'Distribution',
+  capacity: 50,
+  status: 'GOOD',
 };
 
 export default function AdminTransformersPage() {
@@ -41,7 +45,19 @@ export default function AdminTransformersPage() {
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editTarget, setEditTarget] = useState<Transformer | null>(null);
-  const [form, setForm] = useState(DEFAULT_FORM);
+  const { id: _removeId, ...DEFAULT_FORM_NO_ID } = DEFAULT_FORM as any;
+  const DEFAULT_FORM_NO_ID_STATE = DEFAULT_FORM_NO_ID as typeof DEFAULT_FORM;
+
+  type TransformerForm = {
+    name: string;
+    location: string;
+    type: typeof DEFAULT_FORM.type;
+    capacity: number;
+    status: typeof DEFAULT_FORM.status;
+  };
+
+  const [form, setForm] = useState<TransformerForm>(DEFAULT_FORM_NO_ID_STATE as TransformerForm);
+
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Transformer | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -69,7 +85,7 @@ export default function AdminTransformersPage() {
   };
 
   const openEdit = (t: Transformer) => {
-    setForm({ id: t.id, name: t.name, location: t.location, type: t.type, capacity: t.capacity, status: t.status });
+    setForm({ name: t.name, location: t.location, type: t.type, capacity: t.capacity, status: t.status });
     setEditTarget(t);
     setModalMode('edit');
   };
@@ -77,8 +93,8 @@ export default function AdminTransformersPage() {
   const closeModal = () => { setModalMode(null); setEditTarget(null); };
 
   const handleSave = async () => {
-    if (!form.id.trim() || !form.name.trim()) {
-      toast.error('ID and Name are required');
+    if (!form.name?.trim()) {
+      toast.error('Name is required');
       return;
     }
     setSaving(true);
@@ -91,7 +107,7 @@ export default function AdminTransformersPage() {
         });
         const data = await res.json();
         if (data.success) {
-          toast.success(`Transformer ${form.id} added!`);
+          toast.success(`Transformer ${data.assignedId} created!`);
           closeModal();
           fetchTransformers();
           broadcastRefresh();
@@ -200,7 +216,7 @@ export default function AdminTransformersPage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-gray-800 text-gray-400 text-[10px] font-bold uppercase whitespace-nowrap">
-                  <th className="py-4 px-3 sticky left-0 bg-gray-900 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]">ID</th>
+
                   <th className="py-4 px-3">Timestamp</th>
                   <th className="py-4 px-3">Ambient Temp (°C)</th>
                   <th className="py-4 px-3">Age (yr)</th>
@@ -241,7 +257,7 @@ export default function AdminTransformersPage() {
                 ) : (
                   transformers.map((t: any) => (
                     <tr key={t.id} className="hover:bg-gray-800/50 transition-colors whitespace-nowrap">
-                      <td className="py-3 px-3 font-black text-white font-mono sticky left-0 bg-gray-900 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]">{t.id}</td>
+
                       <td className="py-3 px-3 text-gray-400">{t.Timestamp ? new Date(t.Timestamp).toLocaleString() : '—'}</td>
                       <td className="py-3 px-3 text-gray-300">{t.Ambient_Temperature_C ?? '—'}</td>
                       <td className="py-3 px-3 text-gray-300">{t.Age_yr ?? '—'}</td>
@@ -313,20 +329,7 @@ export default function AdminTransformersPage() {
               </div>
 
               <div className="space-y-4">
-                {/* ID - only for add mode */}
-                {modalMode === 'add' && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-400 uppercase">Transformer ID *</label>
-                    <input
-                      id="form-transformer-id"
-                      type="text"
-                      value={form.id}
-                      onChange={e => setForm(f => ({ ...f, id: e.target.value.toUpperCase() }))}
-                      placeholder="e.g. T26"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm font-bold text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 transition-all"
-                    />
-                  </div>
-                )}
+
 
                 {/* Name */}
                 <div className="space-y-1.5">
@@ -335,7 +338,8 @@ export default function AdminTransformersPage() {
                     id="form-transformer-name"
                     type="text"
                     value={form.name}
-                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+
                     placeholder="e.g. Transformer 26"
                     className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm font-semibold text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 transition-all"
                   />

@@ -4,7 +4,7 @@ import { sql } from '@/lib/postgres';
 export async function GET() {
   try {
     await sql.unsafe(`
-      CREATE TABLE IF NOT EXISTS public.transformer (
+      CREATE TABLE IF NOT EXISTS public.transformers (
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(100),
         location VARCHAR(200),
