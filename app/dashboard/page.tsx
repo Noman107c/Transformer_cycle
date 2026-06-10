@@ -51,8 +51,16 @@ type TelemetryPoint = {
   Current_A: number;
   Voltage_kV: number;
   Short_Circuits?: number;
+  No_of_Short_Circuits?: number;
   Maintenance_Count?: number;
   Predicted_HI?: number;
+  Temp_score?: number;
+  Age_score?: number;
+  Maintenance_score?: number;
+  ShortCircuit_score?: number;
+  Outage_score?: number;
+  Current_score?: number;
+  Voltage_score?: number;
 };
 
 const STATUS_META: Record<TransformerStatus, { label: string; text: string; bg: string; border: string }> = {
@@ -155,7 +163,15 @@ export default function DashboardOverview() {
                 Voltage_kV: safeNumber(r.Voltage_kV ?? r.voltage_kv, safeNumber(latest.Voltage_kV ?? latest.voltage_kv)),
                 Predicted_HI: safeNumber(r.Predicted_HI ?? r.predicted_hi, safeNumber(latest.Predicted_HI ?? latest.predicted_hi)),
                 Maintenance_Count: safeNumber(r.Maintenance_Count ?? r.maintenance_count, safeNumber(latest.Maintenance_Count ?? latest.maintenance_count)),
-                Short_Circuits: safeNumber(r.Short_Circuits ?? r.short_circuits, safeNumber(latest.Short_Circuits ?? latest.short_circuits)),
+                Short_Circuits: safeNumber(r.Short_Circuits ?? r.short_circuits ?? r.No_of_Short_Circuits ?? r.no_of_short_circuits, safeNumber(latest.Short_Circuits ?? latest.short_circuits ?? latest.No_of_Short_Circuits ?? latest.no_of_short_circuits)),
+                No_of_Short_Circuits: safeNumber(r.No_of_Short_Circuits ?? r.no_of_short_circuits ?? r.Short_Circuits ?? r.short_circuits, safeNumber(latest.No_of_Short_Circuits ?? latest.no_of_short_circuits ?? latest.Short_Circuits ?? latest.short_circuits)),
+                Temp_score: safeNumber(r.Temp_score ?? r.temp_score, safeNumber(latest.Temp_score ?? latest.temp_score)),
+                Age_score: safeNumber(r.Age_score ?? r.age_score, safeNumber(latest.Age_score ?? latest.age_score)),
+                Maintenance_score: safeNumber(r.Maintenance_score ?? r.maintenance_score, safeNumber(latest.Maintenance_score ?? latest.maintenance_score)),
+                ShortCircuit_score: safeNumber(r.ShortCircuit_score ?? r.shortcircuit_score, safeNumber(latest.ShortCircuit_score ?? latest.shortcircuit_score)),
+                Outage_score: safeNumber(r.Outage_score ?? r.outage_score, safeNumber(latest.Outage_score ?? latest.outage_score)),
+                Current_score: safeNumber(r.Current_score ?? r.current_score, safeNumber(latest.Current_score ?? latest.current_score)),
+                Voltage_score: safeNumber(r.Voltage_score ?? r.voltage_score, safeNumber(latest.Voltage_score ?? latest.voltage_score)),
               }));
 
               allHistory.push(...mappedReadings);
@@ -179,7 +195,7 @@ export default function DashboardOverview() {
       });
 
       allHistory.sort((a, b) => new Date(b.Time).getTime() - new Date(a.Time).getTime());
-      setTransformers(loadedTransformers.sort((a,b) => a.id.localeCompare(b.id)));
+      setTransformers(loadedTransformers.sort((a, b) => a.id.localeCompare(b.id)));
       setHistory(allHistory);
       setLastUpdated(new Date().toLocaleString('en-US', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }));
     } catch { } finally { setIsLoading(false); }
@@ -198,12 +214,12 @@ export default function DashboardOverview() {
     const m = transformers.filter(t => t.status === 'MONITOR').length;
     const r = transformers.filter(t => t.status === 'WARNING').length;
     const c = transformers.filter(t => t.status === 'CRITICAL').length;
-    
+
     return {
-      healthy: { count: h, pct: (h/total)*100 },
-      moderate: { count: m, pct: (m/total)*100 },
-      atRisk: { count: r, pct: (r/total)*100 },
-      critical: { count: c, pct: (c/total)*100 },
+      healthy: { count: h, pct: (h / total) * 100 },
+      moderate: { count: m, pct: (m / total) * 100 },
+      atRisk: { count: r, pct: (r / total) * 100 },
+      critical: { count: c, pct: (c / total) * 100 },
       avgHI: transformers.reduce((a, t) => a + t.healthIndex, 0) / total,
       outages: Math.round(transformers.reduce((a, t) => a + (t.readings.at(-1)?.Outages_hours_per_year || 0), 0)),
       maintenance: Math.round(transformers.reduce((a, t) => a + (t.readings.at(-1)?.Maintenance_Count || 0), 0)),
@@ -225,7 +241,7 @@ export default function DashboardOverview() {
       if (!byTime[d]) byTime[d] = { Time: d };
       byTime[d][p.Transformer] = p.HI * 100;
     });
-    return Object.values(byTime).sort((a,b) => a.Time - b.Time);
+    return Object.values(byTime).sort((a, b) => a.Time - b.Time);
   }, [history]);
 
   // Deterministic sparkline data derived from real history — no Math.random()
@@ -246,7 +262,7 @@ export default function DashboardOverview() {
       Age_yr: make('Age_yr'),
       Ambient_Temperature_C: make('Ambient_Temperature_C'),
       Outages_hours_per_year: make('Outages_hours_per_year'),
-      Short_Circuits: make('Short_Circuits'),
+      Short_Circuits: make('No_of_Short_Circuits'),
       Maintenance_Count: make('Maintenance_Count'),
     };
   }, [history]);
@@ -389,11 +405,11 @@ export default function DashboardOverview() {
             </table>
           </div>
           <div className="flex justify-between items-center text-[9px] text-gray-500 mt-2">
-            <span>Showing {(hsPage-1)*hsItemsPerPage+1} to {Math.min(hsPage*hsItemsPerPage, transformers.length)} of {transformers.length} entries</span>
+            <span>Showing {(hsPage - 1) * hsItemsPerPage + 1} to {Math.min(hsPage * hsItemsPerPage, transformers.length)} of {transformers.length} entries</span>
             <div className="flex gap-1">
-              <button disabled={hsPage===1} onClick={() => setHsPage(p=>p-1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&lt;</button>
+              <button disabled={hsPage === 1} onClick={() => setHsPage(p => p - 1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&lt;</button>
               <button className="px-1.5 py-0.5 bg-blue-600 text-white rounded">{hsPage}</button>
-              <button disabled={hsPage*hsItemsPerPage >= transformers.length} onClick={() => setHsPage(p=>p+1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&gt;</button>
+              <button disabled={hsPage * hsItemsPerPage >= transformers.length} onClick={() => setHsPage(p => p + 1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&gt;</button>
             </div>
           </div>
         </div>
@@ -404,7 +420,7 @@ export default function DashboardOverview() {
           <div className="flex-1 min-h-0">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trendData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#ffffffff" vertical={false} />
                 <XAxis dataKey="Time" stroke="#4b5563" fontSize={9} tickLine={false} axisLine={false} />
                 <YAxis stroke="#4b5563" fontSize={9} domain={[0, 100]} tickLine={false} axisLine={false} />
                 <Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', fontSize: '10px' }} />
@@ -415,7 +431,7 @@ export default function DashboardOverview() {
             </ResponsiveContainer>
           </div>
           <div className="flex justify-center flex-wrap gap-2 text-[8px] text-gray-400 mt-1">
-            {transformers.slice(0, 5).map((t,i) => <span key={t.id} style={{color: colorPalette[i % colorPalette.length]}}>- {t.id}</span>)}
+            {transformers.slice(0, 5).map((t, i) => <span key={t.id} style={{ color: colorPalette[i % colorPalette.length] }}>- {t.id}</span>)}
           </div>
         </div>
 
@@ -506,14 +522,14 @@ export default function DashboardOverview() {
               <tbody className="divide-y divide-gray-800/50">
                 {sdData.map((r, i) => (
                   <tr key={i} className="text-gray-300 hover:bg-gray-800/30">
-                    <td className="py-1.5 font-mono">{new Date(r.Time).toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+                    <td className="py-1.5 font-mono">{new Date(r.Time).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                     <td className="py-1.5">{r.Transformer}</td>
                     <td className="py-1.5">{r.Voltage_kV?.toFixed(1) || '-'}</td>
                     <td className="py-1.5">{r.Current_A?.toFixed(0) || '-'}</td>
                     <td className="py-1.5">{r.Age_yr?.toFixed(1) || '-'}</td>
                     <td className="py-1.5">{r.Ambient_Temperature_C?.toFixed(1) || '-'}</td>
-                    <td className="py-1.5">0</td>
-                    <td className="py-1.5">{r.Short_Circuits || 0}</td>
+                    <td className="py-1.5">{r.Outages_hours_per_year || 0}</td>
+                    <td className="py-1.5">{r.No_of_Short_Circuits || 0}</td>
                     <td className="py-1.5">{r.Maintenance_Count || 0}</td>
                   </tr>
                 ))}
@@ -523,9 +539,9 @@ export default function DashboardOverview() {
           <div className="flex justify-between items-center text-[9px] text-gray-500 mt-2 border-t border-gray-800 pt-2">
             <span>Total Records: {history.length.toLocaleString()}</span>
             <div className="flex gap-1">
-              <button disabled={sdPage===1} onClick={() => setSdPage(p=>p-1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&lt;</button>
+              <button disabled={sdPage === 1} onClick={() => setSdPage(p => p - 1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&lt;</button>
               <button className="px-1.5 py-0.5 bg-blue-600 text-white rounded">{sdPage}</button>
-              <button disabled={sdPage*sdItemsPerPage >= history.length} onClick={() => setSdPage(p=>p+1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&gt;</button>
+              <button disabled={sdPage * sdItemsPerPage >= history.length} onClick={() => setSdPage(p => p + 1)} className="px-1.5 py-0.5 bg-gray-800 rounded disabled:opacity-30">&gt;</button>
             </div>
           </div>
         </div>
@@ -534,7 +550,7 @@ export default function DashboardOverview() {
         <div className="col-span-3 bg-[#0a1128] border border-gray-800 rounded p-3 flex flex-col h-64">
           <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-1">Machine Learning Model</h3>
           <p className="text-[9px] text-gray-400 mb-3">Model Used: <span className="text-white">XGBoost Regressor</span></p>
-          
+
           <div className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-2">→ Model Performance</div>
           <div className="flex justify-between mb-4 bg-[#121633] p-2 rounded border border-gray-800">
             <div className="text-center"><div className="text-gray-500 text-[9px]">MAE</div><div className="text-white font-bold">4.21</div></div>
@@ -548,7 +564,7 @@ export default function DashboardOverview() {
               <BarChart layout="vertical" data={barData} margin={{ top: 0, right: 20, bottom: 0, left: -20 }}>
                 <XAxis type="number" hide />
                 <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} fontSize={8} fill="#9ca3af" />
-                <Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', fontSize: '10px' }} cursor={{fill: '#1f2937'}} />
+                <Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', fontSize: '10px' }} cursor={{ fill: '#1f2937' }} />
                 <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={8} />
               </BarChart>
             </ResponsiveContainer>
@@ -602,7 +618,7 @@ export default function DashboardOverview() {
                   <span className="text-gray-400 truncate w-32">{a.desc}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-500">{new Date(a.ts).toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+                  <span className="text-gray-500">{new Date(a.ts).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                   <span className={`px-1.5 py-0.5 rounded border ${a.sev === 'CRITICAL' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-orange-500/10 border-orange-500/30 text-orange-400'}`}>{a.sev === 'CRITICAL' ? 'Critical' : 'Warning'}</span>
                 </div>
               </div>
@@ -652,7 +668,7 @@ export default function DashboardOverview() {
             </ul>
           </div>
           <div className="w-16 h-16 opacity-50 ml-2">
-             <ShieldCheck size={48} className="text-blue-500" />
+            <ShieldCheck size={48} className="text-blue-500" />
           </div>
         </div>
       </div>
