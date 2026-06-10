@@ -48,6 +48,7 @@ export async function DELETE(
       message: `Table "${tableName}" dropped (if it existed).`,
     });
   } catch (err: unknown) {
+    console.error("Error in DELETE /api/admin/transformers/[id]/cascade:", err);
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }

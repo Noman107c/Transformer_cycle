@@ -9,6 +9,7 @@ export async function POST() {
       message: 'Successfully re-sliced and synchronized all 25 datasets into public store.'
     });
   } catch (err: any) {
+    console.error("Error in POST /api/admin/sync:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

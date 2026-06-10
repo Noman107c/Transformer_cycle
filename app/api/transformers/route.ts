@@ -89,6 +89,7 @@ export async function GET(request: Request) {
       pagination: { total, page, limit, pages },
     });
   } catch (err: any) {
+    console.error("Error in GET /api/transformers:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
