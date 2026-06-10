@@ -19,6 +19,7 @@ export async function GET() {
       data: allHistory
     });
   } catch (err: any) {
+    console.error("Error in GET /api/transformers/history:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

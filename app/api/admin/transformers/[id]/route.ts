@@ -38,6 +38,7 @@ export async function PUT(
 
     return NextResponse.json({ success: true, data });
   } catch (err: any) {
+    console.error("Error in PUT /api/admin/transformers/[id]:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
@@ -69,6 +70,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true, deletedId: data.id });
   } catch (err: any) {
+    console.error("Error in DELETE /api/admin/transformers/[id]:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

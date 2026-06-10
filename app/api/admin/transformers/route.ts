@@ -52,6 +52,7 @@ export async function GET(_request: NextRequest) {
 
     return NextResponse.json({ success: true, data: enriched });
   } catch (err: any) {
+    console.error("Error in GET /api/admin/transformers:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
@@ -127,6 +128,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: row, assignedId: newId }, { status: 201 });
   } catch (err: any) {
+    console.error("Error in POST /api/admin/transformers:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

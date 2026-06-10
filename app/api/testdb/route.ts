@@ -7,6 +7,7 @@ export async function GET() {
     const tables = await sql`SELECT table_name FROM information_schema.tables WHERE table_schema='public'`;
     return NextResponse.json(tables.map(t => t.table_name));
   } catch (err: any) {
+    console.error("Error in GET /api/testdb:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   } finally {
     await sql.end();

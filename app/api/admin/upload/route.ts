@@ -45,13 +45,15 @@ export async function POST(request: Request) {
     if (fileType === 'json') {
       try {
         parsedData = typeof fileContent === 'string' ? JSON.parse(fileContent) : fileContent;
-      } catch {
+      } catch (jsonErr: any) {
+        console.error("Error parsing JSON in POST /api/admin/upload:", jsonErr);
         return NextResponse.json({ success: false, error: 'Invalid JSON format' }, { status: 400 });
       }
     } else if (fileType === 'csv') {
       try {
         parsedData = parseCsv(fileContent);
-      } catch {
+      } catch (csvErr: any) {
+        console.error("Error parsing CSV in POST /api/admin/upload:", csvErr);
         return NextResponse.json({ success: false, error: 'Invalid CSV format' }, { status: 400 });
       }
     } else {
@@ -117,6 +119,7 @@ export async function POST(request: Request) {
       message: `Successfully inserted ${insertedCount} records into database table ${tableName}.`,
     });
   } catch (err: any) {
+    console.error("Error in POST /api/admin/upload:", err);
     if (err.message?.includes('does not exist')) {
       return NextResponse.json(
         { success: false, error: 'Database table for this transformer does not exist.' },
