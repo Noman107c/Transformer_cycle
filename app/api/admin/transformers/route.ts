@@ -6,58 +6,45 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 export async function GET(_request: NextRequest) {
   try {
     const { data: metaRows, error: metaErr } = await transformersTable()
-      .select('id, name, location, type, capacity, status, is_active, created_at, updated_at')
+      .select('*')
       .order('id', { ascending: true });
 
     if (metaErr) throw metaErr;
-    if (!metaRows) return NextResponse.json({ success: true, data: [] });
+    if (!metaRows || metaRows.length === 0) return NextResponse.json({ success: true, data: [] });
 
     const enriched = await Promise.all(
       (metaRows as any[]).map(async (meta: any) => {
-        const numMatch = meta.id.match(/\d+/);
-        if (!numMatch) return meta;
-
         try {
-          const { data: rows } = await sensorTable(meta.id)
-            .select('*')
+          // Map ID 'T18' to table 'transformer_18'
+          const tableNum = meta.id.replace(/\D/g, '');
+          const tableName = `transformer_${tableNum}`;
+
+          const { data: rows, error: sensorErr } = await (supabaseAdmin as any)
+            .from(tableName)
+            .select('Timestamp, HI, Ambient_Temperature_C, Age_yr, Current_A, Voltage_kV, Predicted_HI, Maintenance_Count, No_of_Short_Circuits, Outages_hours_per_year, Temp_score, Age_score, Maintenance_score, ShortCircuit_score, Outage_score, Current_score, Voltage_score')
             .order('Timestamp', { ascending: false })
             .limit(1);
 
-          const latest = rows?.[0];
-          if (!latest) return meta;
+          if (sensorErr || !rows || rows.length === 0) return meta;
 
-          const hi: number | null = latest.HI ?? null;
+          const latest = rows[0];
+          const hi = typeof latest.HI === 'number' ? latest.HI : null;
           let liveStatus = meta.status;
           if (hi !== null) {
-            if      (hi < 0.55) liveStatus = 'CRITICAL';
+            if (hi < 0.55) liveStatus = 'CRITICAL';
             else if (hi < 0.70) liveStatus = 'WARNING';
             else if (hi < 0.80) liveStatus = 'MONITOR';
-            else                liveStatus = 'GOOD';
+            else liveStatus = 'GOOD';
           }
 
           return {
             ...meta,
-            Timestamp:              latest.Timestamp,
-            Ambient_Temperature_C:  latest.Ambient_Temperature_C,
-            Age_yr:                 latest.Age_yr,
-            Maintenance_Count:      latest.Maintenance_Count,
-            No_of_Short_Circuits:   latest.No_of_Short_Circuits,
-            Outages_hours_per_year: latest.Outages_hours_per_year,
-            Current_A:              latest.Current_A,
-            Voltage_kV:             latest.Voltage_kV,
-            Temp_score:             latest.Temp_score,
-            Age_score:              latest.Age_score,
-            Maintenance_score:      latest.Maintenance_score,
-            ShortCircuit_score:     latest.ShortCircuit_score,
-            Outage_score:           latest.Outage_score,
-            Current_score:          latest.Current_score,
-            Voltage_score:          latest.Voltage_score,
-            HI:                     latest.HI,
-            Predicted_HI:           latest.Predicted_HI,
+            ...latest,
             status:                 liveStatus,
-            healthIndex:            hi,
+            healthIndex:            hi !== null ? hi * 100 : 0,
           };
         } catch {
+          console.error(`Failed to enrich transformer ${meta.id}`);
           return meta;
         }
       })
