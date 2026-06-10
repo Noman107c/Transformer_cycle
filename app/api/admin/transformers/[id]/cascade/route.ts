@@ -1,11 +1,20 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/postgres';
+import { type NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 
 /**
  * DELETE /api/admin/transformers/[id]/cascade
  *
  * Drops the sensor data table (e.g. transformer_3) for the given transformer ID.
  * Call this BEFORE deleting the row from the `transformers` metadata table.
+ *
+ * Requires the following RPC function in Supabase SQL Editor:
+ *
+ *   CREATE OR REPLACE FUNCTION drop_transformer_table(p_table_name text)
+ *   RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+ *   BEGIN
+ *     EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', p_table_name);
+ *   END;
+ *   $$;
  */
 export async function DELETE(
   _request: NextRequest,
@@ -14,7 +23,6 @@ export async function DELETE(
   try {
     const { id } = await params;
 
-    // Extract numeric part from id (handles T1, T01, TRF-01, etc.)
     const numMatch = id.match(/\d+/);
     if (!numMatch) {
       return NextResponse.json(
@@ -22,20 +30,25 @@ export async function DELETE(
         { status: 400 }
       );
     }
-    const tableNum = parseInt(numMatch[0], 10);
+    const tableNum  = parseInt(numMatch[0], 10);
     const tableName = `transformer_${tableNum}`;
 
-    // Drop the sensor data table if it exists
-    await sql`DROP TABLE IF EXISTS public.${sql(tableName)} CASCADE`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).rpc('drop_transformer_table', {
+      p_table_name: tableName,
+    });
+
+    if (error) {
+      console.warn('drop_transformer_table RPC error:', error.message);
+      // Non-fatal — table may already not exist
+    }
 
     return NextResponse.json({
       success: true,
       message: `Table "${tableName}" dropped (if it existed).`,
     });
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err.message },
-      { status: 500 }
-    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 }

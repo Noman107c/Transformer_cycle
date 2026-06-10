@@ -1,8 +1,7 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
-import { LogOut, Bell, User, Settings } from 'lucide-react';
+import { Bell, User, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,18 +13,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export function AdminTopBar() {
-  const [isLoading, setIsLoading] = useState(false);
-
-  const handleLogout = async () => {
-    setIsLoading(true);
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      window.location.href = '/admin/login';
-    } catch (error) {
-      console.error('Logout failed:', error);
-      setIsLoading(false);
-    }
-  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-gray-700 bg-gray-900">
@@ -64,15 +51,6 @@ export function AdminTopBar() {
               <DropdownMenuItem className="text-gray-300 hover:bg-gray-700 cursor-pointer">
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Settings</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-gray-700" />
-              <DropdownMenuItem
-                onClick={handleLogout}
-                disabled={isLoading}
-                className="text-red-400 hover:bg-gray-700 cursor-pointer"
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>{isLoading ? 'Logging out...' : 'Logout'}</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

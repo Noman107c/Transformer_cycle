@@ -38,12 +38,7 @@ const ADMIN_MENU_ITEMS = [
     icon: AlertCircle,
     description: 'System and activity logs',
   },
-  {
-    href: '/admin/settings',
-    label: 'Settings',
-    icon: Settings,
-    description: 'System configuration',
-  },
+  
 ];
 
 type QuickStats = {
