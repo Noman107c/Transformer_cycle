@@ -301,29 +301,7 @@ export default function AdminDashboard() {
               <thead>
                 <tr className="border-b border-gray-800 text-gray-400 font-bold uppercase bg-gray-900/60">
                   {([
-                    { label: 'Name',          key: 'name' },
-                    { label: 'Location',      key: 'location' },
-                    { label: 'Type',          key: 'type' },
-                    { label: 'Cap. (kVA)',    key: 'capacity' },
-                    { label: 'Status',        key: 'status' },
-                    { label: 'Active',        key: 'is_active' },
-                    { label: 'HI (%)',        key: 'HI' },
-                    { label: 'Pred. HI',      key: 'Predicted_HI' },
-                    { label: 'Temp (°C)',     key: 'Ambient_Temperature_C' },
-                    { label: 'Age (yr)',      key: 'Age_yr' },
-                    { label: 'Current (A)',   key: 'Current_A' },
-                    { label: 'Voltage (kV)', key: 'Voltage_kV' },
-                    { label: 'Outages',       key: 'Outages_hours_per_year' },
-                    { label: 'Maint.',        key: 'Maintenance_Count' },
-                    { label: 'Short Cir.',    key: 'No_of_Short_Circuits' },
-                    { label: 'Temp Score',    key: 'Temp_score' },
-                    { label: 'Age Score',     key: 'Age_score' },
-                    { label: 'Maint. Score',  key: 'Maintenance_score' },
-                    { label: 'SC Score',      key: 'ShortCircuit_score' },
-                    { label: 'Outage Score',  key: 'Outage_score' },
-                    { label: 'Curr. Score',   key: 'Current_score' },
-                    { label: 'Volt. Score',   key: 'Voltage_score' },
-                    { label: 'Last Reading',  key: 'Timestamp' },
+                    { label: 'Name', key: 'name' },
                   ] as { label: string; key: SortKey }[]).map(col => (
                     <th
                       key={col.key}

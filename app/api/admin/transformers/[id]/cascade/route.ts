@@ -1,55 +1,30 @@
-import { type NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import sql from '@/lib/postgres';
 
-/**
- * DELETE /api/admin/transformers/[id]/cascade
- *
- * Drops the sensor data table (e.g. transformer_3) for the given transformer ID.
- * Call this BEFORE deleting the row from the `transformers` metadata table.
- *
- * Requires the following RPC function in Supabase SQL Editor:
- *
- *   CREATE OR REPLACE FUNCTION drop_transformer_table(p_table_name text)
- *   RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
- *   BEGIN
- *     EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', p_table_name);
- *   END;
- *   $$;
- */
 export async function DELETE(
-  _request: NextRequest,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    const num = id.replace(/\D/g, '');
+    const normalizedId = `transformer_${num}`;
+    const tableName = `transformer_${num}`;
 
-    const numMatch = id.match(/\d+/);
-    if (!numMatch) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid transformer ID — no numeric part found' },
-        { status: 400 }
-      );
-    }
-    const tableNum  = parseInt(numMatch[0], 10);
-    const tableName = `transformer_${tableNum}`;
+    await sql.begin(async (tx) => {
+      // 1. Delete metadata row
+      await tx`
+        DELETE FROM public.transformers 
+        WHERE id = ${normalizedId};
+      `;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any).rpc('drop_transformer_table', {
-      p_table_name: tableName,
+      // 2. Drop the physical sensor table
+      await tx`
+        DROP TABLE IF EXISTS public.${tx(tableName)} CASCADE;
+      `;
     });
 
-    if (error) {
-      console.warn('drop_transformer_table RPC error:', error.message);
-      // Non-fatal — table may already not exist
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: `Table "${tableName}" dropped (if it existed).`,
-    });
-  } catch (err: unknown) {
-    console.error("Error in DELETE /api/admin/transformers/[id]/cascade:", err);
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    return Response.json({ success: true, message: `Transformer ${id} and table ${tableName} dropped successfully` });
+  } catch (err: any) {
+    return Response.json({ success: false, error: err.message }, { status: 500 });
   }
 }

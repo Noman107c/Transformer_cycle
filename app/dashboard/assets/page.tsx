@@ -68,9 +68,10 @@ export default function AssetDashboard() {
     setDetailsLoading(true);
     setSelectedDetails([]);
     try {
-      const response = await fetch(`/json/${transformer.id}.json`);
+      const response = await fetch(`/api/admin/transformers/${transformer.id}/data`);
       if (response.ok) {
-        let data = await response.json();
+        const jsonRes = await response.json();
+        let data = jsonRes.data || [];
         if (Array.isArray(data) && data.length > 0) {
           const times = data.map((r: any) => new Date(r.Time).getTime());
           const maxTime = Math.max(...times);

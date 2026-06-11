@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/layout';
 import {
   Plus, Pencil, Trash2, X, Save, Loader2, Cpu,
-  MapPin, Zap, Activity, AlertTriangle, CheckCircle2, RefreshCw, Database
+  MapPin, Zap, Activity, AlertTriangle, CheckCircle2, RefreshCw, Database, Upload
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -61,6 +61,68 @@ export default function AdminTransformersPage() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Transformer | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // CSV Bulk Import State
+  const [selectedUploadTrf, setSelectedUploadTrf] = useState('');
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    success: boolean;
+    insertedCount?: number;
+    failedCount?: number;
+    error?: string;
+  } | null>(null);
+
+  const handleCsvUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUploadTrf) {
+      toast.error('Please select a target transformer');
+      return;
+    }
+    if (!csvFile) {
+      toast.error('Please select a CSV file');
+      return;
+    }
+
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', csvFile);
+      formData.append('transformerId', selectedUploadTrf);
+      formData.append('duplicateAction', 'update');
+
+      const res = await fetch('/api/admin/transformers/import', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Import completed! ${data.insertedCount} records imported.`);
+        setImportResult({
+          success: true,
+          insertedCount: data.insertedCount,
+          failedCount: data.failedCount,
+        });
+        setCsvFile(null);
+        const fileInput = document.getElementById('csv-file-input') as HTMLInputElement;
+        if (fileInput) fileInput.value = '';
+        fetchTransformers();
+        broadcastRefresh();
+      } else {
+        toast.error(data.error || 'Import failed');
+        setImportResult({
+          success: false,
+          error: data.error,
+          failedCount: data.failedCount,
+        });
+      }
+    } catch {
+      toast.error('Network error during import');
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const fetchTransformers = useCallback(async () => {
     setLoading(true);
@@ -208,6 +270,74 @@ export default function AdminTransformersPage() {
               <p className={`text-3xl font-black mt-1 ${s.color}`}>{loading ? '—' : s.value}</p>
             </div>
           ))}
+        </div>
+
+        {/* CSV Bulk Import Section */}
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 shadow-lg space-y-4">
+          <div className="flex items-center gap-2 border-b border-gray-800 pb-3">
+            <Upload className="text-blue-500" size={20} />
+            <h2 className="text-lg font-black text-white uppercase tracking-tight">Bulk CSV Sensor Data Import</h2>
+          </div>
+          
+          <form onSubmit={handleCsvUpload} className="flex flex-col md:flex-row items-end gap-4">
+            <div className="flex-1 w-full space-y-1.5">
+              <label className="text-xs font-bold text-gray-400 uppercase">1. Select Target Transformer</label>
+              <select
+                value={selectedUploadTrf}
+                onChange={e => setSelectedUploadTrf(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-all cursor-pointer"
+              >
+                <option value="">-- Choose Transformer --</option>
+                {transformers.map(t => (
+                  <option key={t.id} value={t.id}>{t.id} ({t.name})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex-1 w-full space-y-1.5">
+              <label className="text-xs font-bold text-gray-400 uppercase">2. Select CSV File</label>
+              <input
+                id="csv-file-input"
+                type="file"
+                accept=".csv"
+                onChange={e => setCsvFile(e.target.files?.[0] || null)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-1.5 text-sm text-white file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white file:cursor-pointer hover:file:bg-blue-500 focus:outline-none focus:border-blue-500/50 transition-all"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={importing || !selectedUploadTrf || !csvFile}
+              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm uppercase transition-all shadow-lg cursor-pointer"
+            >
+              {importing ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+              {importing ? 'Importing...' : 'Upload & Import'}
+            </button>
+          </form>
+
+          {importResult && (
+            <div className={`mt-3 p-4 rounded-xl border text-xs ${
+              importResult.success
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-red-500/10 border-red-500/30 text-red-300'
+            }`}>
+              <div className="flex items-center gap-2 font-bold uppercase tracking-wider mb-1">
+                {importResult.success ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+                {importResult.success ? 'Import Successful' : 'Import Failed'}
+              </div>
+              {importResult.success ? (
+                <p>
+                  Successfully imported <strong>{importResult.insertedCount}</strong> rows.
+                  {importResult.failedCount ? ` Skipped/Failed ${importResult.failedCount} rows.` : ''}
+                </p>
+              ) : (
+                <p>
+                  Error: {importResult.error}.
+                  {importResult.failedCount ? ` Failed rows logged: ${importResult.failedCount}.` : ''}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Table */}

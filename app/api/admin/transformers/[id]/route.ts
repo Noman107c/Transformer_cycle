@@ -1,76 +1,64 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { transformersTable } from '@/lib/supabase';
+import sql from '@/lib/postgres';
 
-// PUT /api/admin/transformers/[id]
-// Updates metadata fields for a transformer in the `transformers` table.
 export async function PUT(
-  request: NextRequest,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const body = await request.json();
-    const { name, location, type, capacity, status } = body;
+    const num = id.replace(/\D/g, '');
+    const normalizedId = `transformer_${num}`;
+    
+    const { name, location, type, capacity, status } = await request.json();
 
-    // Build only the fields that were provided
-    const updates: Record<string, any> = { updated_at: new Date().toISOString() };
-    if (name      !== undefined) updates.name     = name;
-    if (location  !== undefined) updates.location = location;
-    if (type      !== undefined) updates.type     = type;
-    if (capacity  !== undefined) updates.capacity = Number(capacity);
-    if (status    !== undefined) updates.status   = status;
-
-    const { data, error } = await transformersTable()
-      .update(updates)
-      .eq('id', id)
-      .select('id, name, location, type, capacity, status, is_active, created_at, updated_at')
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { success: false, error: 'Transformer not found' },
-          { status: 404 }
-        );
-      }
-      throw error;
+    if (!name || !name.trim()) {
+      return Response.json({ success: false, error: 'Name is required' }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, data });
+    const result = await sql`
+      UPDATE public.transformers 
+      SET 
+        name = ${name}, 
+        location = ${location || ''}, 
+        type = ${type || 'Distribution'}, 
+        capacity = ${capacity || 50}, 
+        status = ${status || 'GOOD'},
+        updated_at = now()
+      WHERE id = ${normalizedId}
+      RETURNING *;
+    `;
+
+    if (result.length === 0) {
+      return Response.json({ success: false, error: 'Transformer not found' }, { status: 404 });
+    }
+
+    return Response.json({ success: true, data: result[0] });
   } catch (err: any) {
-    console.error("Error in PUT /api/admin/transformers/[id]:", err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return Response.json({ success: false, error: err.message }, { status: 500 });
   }
 }
 
-// DELETE /api/admin/transformers/[id]
-// Removes a transformer record from the `transformers` metadata table.
 export async function DELETE(
-  _request: NextRequest,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    const num = id.replace(/\D/g, '');
+    const normalizedId = `transformer_${num}`;
 
-    const { data, error } = await transformersTable()
-      .delete()
-      .eq('id', id)
-      .select('id')
-      .single();
+    const result = await sql`
+      DELETE FROM public.transformers 
+      WHERE id = ${normalizedId}
+      RETURNING *;
+    `;
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { success: false, error: 'Transformer not found' },
-          { status: 404 }
-        );
-      }
-      throw error;
+    if (result.length === 0) {
+      return Response.json({ success: false, error: 'Transformer not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, deletedId: data.id });
+    return Response.json({ success: true, message: 'Metadata deleted successfully' });
   } catch (err: any) {
-    console.error("Error in DELETE /api/admin/transformers/[id]:", err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return Response.json({ success: false, error: err.message }, { status: 500 });
   }
 }

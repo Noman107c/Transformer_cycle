@@ -1,95 +1,63 @@
-import { NextResponse } from 'next/server';
-import { transformersTable, sensorTable } from '@/lib/supabase';
+import sql from '@/lib/postgres';
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const limitParam = searchParams.get('limit');
-    const pageParam = searchParams.get('page');
-
-    const page = Math.max(1, parseInt(pageParam || '1', 10) || 1);
-    const limit = Math.max(1, parseInt(limitParam || '10', 10) || 10);
-    const offset = (page - 1) * limit;
-
-    const { data: rows, error: rowsErr } = await transformersTable()
-      .select('id, name, location, type, capacity, status, is_active')
-      .eq('is_active', true)
-      .order('id', { ascending: true });
-
-    if (rowsErr) throw rowsErr;
-    if (!rows) {
-      return NextResponse.json({
-        success: true,
-        data: [],
-        pagination: { total: 0, page, limit, pages: 0 },
-      });
-    }
-
-    const total = rows.length;
-    const pages = Math.max(1, Math.ceil(total / limit));
-
-    const pageRows = rows.slice(offset, offset + limit);
-
-    // Fetch latest sensor reading for each transformer
-    const transformers = await Promise.all(
-      pageRows.map(async (row: any) => {
-        let hi: number | null = null;
-        let temp: number | null = null;
-        let predictedHi: number | null = null;
-
-        try {
-          // Map T18 -> transformer_18
-          const tableNum = row.id.replace(/\D/g, '');
-          const tableName = `transformer_${tableNum}`;
-
-          const { data: rows, error: sensorErr } = await sensorTable(tableName)
-            .select('HI, Ambient_Temperature_C, Predicted_HI, Timestamp')
-            .order('Timestamp', { ascending: false })
-            .limit(1);
-
-          if (!sensorErr && rows && rows.length > 0) {
-            hi = rows[0].HI;
-            temp = rows[0].Ambient_Temperature_C;
-            predictedHi = rows[0].Predicted_HI;
-          }
-        } catch {
-          // Table might not exist yet or be empty — silently skip
+    const transformers = await sql`
+      SELECT * FROM public.transformers 
+      WHERE is_active = true 
+      ORDER BY id ASC;
+    `;
+    
+    const data = await Promise.all(transformers.map(async (t) => {
+      const num = t.id.replace(/\D/g, '');
+      const tableName = `transformer_${num}`;
+      
+      let latest = null;
+      try {
+        const readings = await sql`
+          SELECT * FROM public.${sql(tableName)}
+          ORDER BY "Timestamp" DESC
+          LIMIT 1;
+        `;
+        if (readings.length > 0) {
+          latest = readings[0];
         }
+      } catch (err) {
+        // Table might not exist or be empty
+      }
+      
+      const padId = String(num).padStart(2, '0');
+      
+      let status = t.status || 'GOOD';
+      if (latest && latest.HI !== null && latest.HI !== undefined) {
+        const hi = latest.HI;
+        if (hi < 0.55) status = 'CRITICAL';
+        else if (hi < 0.70) status = 'WARNING';
+        else if (hi < 0.80) status = 'MONITOR';
+        else status = 'GOOD';
+      }
 
-        // Map to frontend status: healthy | warning | critical
-        let healthState: 'healthy' | 'warning' | 'critical' = 'healthy';
-        if (hi !== null) {
-          if (hi < 0.55) healthState = 'critical';
-          else if (hi < 0.70) healthState = 'warning';
-          else healthState = 'healthy';
-        }
+      return {
+        _id: `T${num}`,
+        id: t.id,
+        name: t.name,
+        location: t.location,
+        type: t.type,
+        capacity: t.capacity,
+        status: status,
+        is_active: t.is_active,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+        transformerId: `TRF-${padId}`,
+        healthIndex: latest ? latest.HI : 0.85,
+        ambientTemperatureC: latest ? latest.Ambient_Temperature_C : 25.0,
+        ageYr: latest ? latest.Age_yr : 5.0,
+        lastMaintenance: latest ? latest.Timestamp : new Date().toISOString()
+      };
+    }));
 
-        // healthScore expected by frontend (0-100 scale)
-        const healthScore = (hi ?? 0) * 100;
-
-        return {
-          _id: row.id,
-          id: row.id,
-          name: row.name,
-          location: row.location,
-          type: row.type,
-          capacity: row.capacity,
-          status: healthState,
-          healthScore,
-          temperature: temp ?? 0,
-          oilLevel: 0, // Column not in provided SQL schema
-          rul: Math.round((predictedHi ?? 0) * 3650), // Using predicted HI as a base for RUL days
-        };
-      })
-    );
-
-    return NextResponse.json({
-      success: true,
-      data: transformers,
-      pagination: { total, page, limit, pages },
-    });
+    return Response.json({ success: true, data });
   } catch (err: any) {
-    console.error("Error in GET /api/transformers:", err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return Response.json({ success: false, error: err.message }, { status: 500 });
   }
 }
