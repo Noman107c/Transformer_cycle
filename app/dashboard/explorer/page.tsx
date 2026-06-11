@@ -12,45 +12,37 @@ import {
   FileSpreadsheet,
   RefreshCw
 } from 'lucide-react';
+import useSWR from 'swr';
 
-const initialSensorsData = [
-  { timestamp: '12-May-2024 10:30', trfId: 'TRF-01', voltage: 11.02, current: 128.6, temp: 42.1, oil: 95.4, insulation: 96.5, furan: 12.3, vibration: 2.1 },
-  { timestamp: '12-May-2024 10:15', trfId: 'TRF-01', voltage: 11.10, current: 125.4, temp: 42.0, oil: 95.5, insulation: 96.5, furan: 12.3, vibration: 2.0 },
-  { timestamp: '12-May-2024 10:00', trfId: 'TRF-02', voltage: 11.20, current: 142.1, temp: 45.8, oil: 91.0, insulation: 90.0, furan: 15.8, vibration: 2.3 },
-  { timestamp: '12-May-2024 09:45', trfId: 'TRF-03', voltage: 10.98, current: 135.2, temp: 58.2, oil: 82.8, insulation: 82.5, furan: 28.1, vibration: 3.1 },
-  { timestamp: '12-May-2024 09:30', trfId: 'TRF-04', voltage: 11.05, current: 120.4, temp: 61.9, oil: 79.4, insulation: 78.8, furan: 31.0, vibration: 2.8 },
-  { timestamp: '12-May-2024 09:15', trfId: 'TRF-09', voltage: 10.82, current: 158.4, temp: 85.2, oil: 49.2, insulation: 42.5, furan: 72.0, vibration: 4.5 },
-  { timestamp: '12-May-2024 09:00', trfId: 'TRF-10', voltage: 10.75, current: 162.1, temp: 88.9, oil: 42.5, insulation: 36.1, furan: 78.4, vibration: 5.2 },
-  { timestamp: '12-May-2024 08:45', trfId: 'TRF-01', voltage: 11.08, current: 126.8, temp: 41.8, oil: 95.6, insulation: 96.8, furan: 12.2, vibration: 1.9 },
-  { timestamp: '12-May-2024 08:30', trfId: 'TRF-02', voltage: 11.18, current: 140.2, temp: 45.4, oil: 91.2, insulation: 90.2, furan: 15.7, vibration: 2.2 },
-  { timestamp: '12-May-2024 08:15', trfId: 'TRF-06', voltage: 10.92, current: 148.6, temp: 72.1, oil: 68.5, insulation: 65.8, furan: 45.5, vibration: 3.8 },
-];
-
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 export default function DataExplorer() {
-  const [data, setData] = useState(initialSensorsData);
+  const { data: transformersDataResponse } = useSWR('/api/transformers', fetcher);
+  const transformers = transformersDataResponse?.data || [];
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTrf, setSelectedTrf] = useState('All');
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedTrf, setSelectedTrf] = useState('');
+
+  // Default select first
+  if (!selectedTrf && transformers.length > 0) {
+    setSelectedTrf(transformers[0].id);
+  }
+
+  const { data: detailData, mutate: refreshData, isValidating: isRefreshing } = useSWR(
+    selectedTrf ? `/api/transformers/${selectedTrf}` : null,
+    fetcher
+  );
+
+  const data = detailData?.data || [];
 
   const handleRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      // Simulate rolling state updates on refresh
-      setData(prev => prev.map(row => ({
-        ...row,
-        voltage: parseFloat((row.voltage + (Math.random() - 0.5) * 0.1).toFixed(2)),
-        current: parseFloat((row.current + (Math.random() - 0.5) * 4).toFixed(1)),
-        temp: parseFloat((row.temp + (Math.random() - 0.5) * 1.5).toFixed(1)),
-      })));
-      setIsRefreshing(false);
-    }, 800);
+    refreshData();
   };
 
   const handleExportCSV = () => {
     // Generate actual CSV content
-    const headers = 'Timestamp,Transformer ID,Voltage (kV),Current (A),Temperature (C),Oil (%),Insulation (MOhms),Furan (ppm),Vibration (mm/s)\n';
-    const rows = filteredData.map(r => 
-      `${r.timestamp},${r.trfId},${r.voltage},${r.current},${r.temp},${r.oil},${r.insulation},${r.furan},${r.vibration}`
+    const headers = 'Timestamp,Transformer ID,Voltage (kV),Current (A),Temperature (C),Age,Outages,Short Circuits,HI\n';
+    const rows = filteredData.map((r: any) => 
+      `${r.Timestamp},${selectedTrf},${r.Voltage_kV},${r.Current_A},${r.Ambient_Temperature_C},${r.Age_yr},${r.Outages_hours_per_year},${r.No_of_Short_Circuits},${r.HI}`
     ).join('\n');
     
     const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
@@ -74,11 +66,12 @@ export default function DataExplorer() {
     document.body.removeChild(link);
   };
 
-  const filteredData = data.filter(r => {
-    const matchesSearch = r.trfId.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          r.timestamp.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesTrf = selectedTrf === 'All' || r.trfId === selectedTrf;
-    return matchesSearch && matchesTrf;
+  const filteredData = data.filter((r: any) => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return r.Timestamp?.toLowerCase().includes(term) ||
+           String(r.Voltage_kV).includes(term) ||
+           String(r.Current_A).includes(term);
   });
 
   return (
@@ -119,11 +112,10 @@ export default function DataExplorer() {
             <select 
               value={selectedTrf}
               onChange={(e) => setSelectedTrf(e.target.value)}
-              className="bg-[#0a0e27] border border-blue-500/10 rounded-lg px-3 py-1.5 text-white focus:outline-none cursor-pointer"
+              className="bg-[#121633] border border-blue-500/15 rounded-lg px-4 py-2 text-xs font-bold text-white focus:outline-none focus:border-cyan-500/30 shadow-inner cursor-pointer"
             >
-              <option value="All">All Transformers</option>
-              {Array.from({ length: 25 }, (_, i) => `TRF-${String(i + 1).padStart(2, '0')}`).map((trf) => (
-                <option key={trf} value={trf}>{trf}</option>
+              {transformers.map((trf: any) => (
+                <option key={trf.id} value={trf.id}>{trf.name} ({trf.id})</option>
               ))}
             </select>
           </div>
@@ -153,34 +145,36 @@ export default function DataExplorer() {
       <div className="glassmorphism rounded-lg border border-blue-500/10 p-5 shadow-lg bg-[#151a37]/35 flex flex-col space-y-4">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs font-semibold text-muted-foreground">
-            <thead>
-              <tr className="border-b border-blue-500/10 text-white font-bold pb-2 uppercase">
-                <th className="pb-2">Timestamp</th>
-                <th className="pb-2">Asset ID</th>
-                <th className="pb-2 text-center">Voltage (kV)</th>
-                <th className="pb-2 text-center">Current (A)</th>
-                <th className="pb-2 text-center">Temperature (°C)</th>
-                <th className="pb-2 text-center">Oil Level (%)</th>
-                <th className="pb-2 text-center">Insulation (M&Omega;)</th>
-                <th className="pb-2 text-center">Furan Content (ppm)</th>
-                <th className="pb-2 text-center">Vibration (mm/s)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-blue-500/5 text-white/95 leading-relaxed font-mono">
-              {filteredData.map((row, idx) => (
-                <tr key={idx} className="hover:bg-blue-500/5 transition-colors">
-                  <td className="py-3 text-muted-foreground">{row.timestamp}</td>
-                  <td className="py-3 font-bold text-cyan-300 font-sans">{row.trfId}</td>
-                  <td className="py-3 text-center">{row.voltage.toFixed(2)}</td>
-                  <td className="py-3 text-center">{row.current.toFixed(1)}</td>
-                  <td className="py-3 text-center text-orange-400 font-bold">{row.temp.toFixed(1)}°C</td>
-                  <td className="py-3 text-center">{row.oil.toFixed(1)}%</td>
-                  <td className="py-3 text-center">{row.insulation.toFixed(1)}</td>
-                  <td className="py-3 text-center">{row.furan.toFixed(1)}</td>
-                  <td className="py-3 text-center">{row.vibration.toFixed(2)}</td>
+              <thead>
+                <tr className="border-b border-blue-500/15 text-muted-foreground font-bold font-sans">
+                  <th className="pb-3 text-left">Timestamp</th>
+                  <th className="pb-3 text-left">Transformer ID</th>
+                  <th className="pb-3 text-center">Voltage (kV)</th>
+                  <th className="pb-3 text-center">Current (A)</th>
+                  <th className="pb-3 text-center">Temp (°C)</th>
+                  <th className="pb-3 text-center">Age (yr)</th>
+                  <th className="pb-3 text-center">Short Circuits</th>
+                  <th className="pb-3 text-center">Outages (hr/yr)</th>
+                  <th className="pb-3 text-center">HI Score</th>
                 </tr>
-              ))}
-            </tbody>
+              </thead>
+              <tbody className="divide-y divide-blue-500/5">
+                {filteredData.map((row: any, idx: number) => (
+                  <tr key={idx} className="hover:bg-blue-500/5 group">
+                    <td className="py-3 text-left font-sans">{new Date(row.Timestamp).toLocaleString()}</td>
+                    <td className="py-3 text-left font-bold text-cyan-400">{selectedTrf}</td>
+                    <td className="py-3 text-center">{Number(row.Voltage_kV).toFixed(2)}</td>
+                    <td className="py-3 text-center text-orange-400 font-bold">{Number(row.Current_A).toFixed(1)}</td>
+                    <td className="py-3 text-center">{Number(row.Ambient_Temperature_C).toFixed(1)}</td>
+                    <td className="py-3 text-center">{row.Age_yr}</td>
+                    <td className="py-3 text-center text-purple-400">{row.No_of_Short_Circuits}</td>
+                    <td className="py-3 text-center">{Number(row.Outages_hours_per_year).toFixed(1)}</td>
+                    <td className={`py-3 text-center font-bold ${row.HI >= 0.8 ? 'text-green-400' : row.HI >= 0.7 ? 'text-yellow-400' : 'text-red-400'}`}>
+                      {Number(row.HI).toFixed(4)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
           </table>
           {filteredData.length === 0 && (
             <div className="text-center py-8 text-muted-foreground font-bold">

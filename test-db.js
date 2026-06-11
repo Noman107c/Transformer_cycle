@@ -10,7 +10,7 @@ async function test() {
     const result = await sql`
       SELECT *
       FROM public.transformer_1
-      LIMIT 1
+      LIMIT 10
     `;
 
     console.log(result);

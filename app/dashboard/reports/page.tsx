@@ -188,26 +188,9 @@ export default function ReportsPage() {
           <Clock size={14} className="text-cyan-400" /> Compiled Document Archives
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold text-muted-foreground">
-          <div className="p-3 bg-[#0a0e27]/40 border border-blue-500/5 rounded-lg flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <FileText className="text-[#10b981]" size={16} />
-              <div>
-                <p className="text-white font-bold">transys_compiled_report_tmp-001.pdf</p>
-                <p className="text-[9px] text-muted-foreground mt-0.5">12-May-2024 10:30 AM &bull; 2.5 MB</p>
-              </div>
-            </div>
-            <span className="text-green-400 flex items-center gap-1"><CheckCircle size={10} /> Compiled</span>
-          </div>
-
-          <div className="p-3 bg-[#0a0e27]/40 border border-blue-500/5 rounded-lg flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <FileText className="text-blue-400" size={16} />
-              <div>
-                <p className="text-white font-bold">transys_compiled_report_tmp-003.xlsx</p>
-                <p className="text-[9px] text-muted-foreground mt-0.5">11-May-2024 02:40 PM &bull; 820 KB</p>
-              </div>
-            </div>
-            <span className="text-green-400 flex items-center gap-1"><CheckCircle size={10} /> Compiled</span>
+          {/* We will populate this array when reports are actually compiled. For now, empty state. */}
+          <div className="col-span-full text-center py-4 text-muted-foreground italic">
+            No compiled reports found in archive. Select a template and compile above.
           </div>
         </div>
       </div>

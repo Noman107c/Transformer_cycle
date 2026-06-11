@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test-db": "node scratch/test_db_direct.mjs",
+    "test-api": "node scratch/test_api_endpoints.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

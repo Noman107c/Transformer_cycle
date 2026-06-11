@@ -108,97 +108,18 @@ export default function DashboardOverview() {
   const fetchStaticData = async () => {
     try {
       setIsLoading(true);
-      const { createClient } = await import('@/utils/supabase/client');
-      const supabase = createClient();
-
-      let activeIds: string[] = [];
-      try {
-        const metaRes = await fetch('/api/admin/transformers');
-        const metaJson = await metaRes.json();
-        if (metaJson.success && Array.isArray(metaJson.data) && metaJson.data.length > 0) {
-          activeIds = metaJson.data.filter((t: any) => t.is_active).map((t: any) => t.id as string);
-        }
-      } catch { }
-
-      if (activeIds.length === 0) activeIds = Array.from({ length: 25 }, (_, i) => `T${i + 1}`);
-
-      const promises = activeIds.map((tId) => {
-        const num = parseInt(tId.replace(/[^\d]/g, ''), 10);
-        const tableName = `transformer_${num}`;
-        return supabase.from(tableName).select('*').then(({ data, error }: { data: any, error: any }) => {
-          if (error && error.message?.includes('schema cache')) return { id: tId, data: null, missing: true };
-          if (error) throw new Error(`Failed to load ${tId}: ${error.message}`);
-          return { id: tId, data };
-        });
-      });
-
-      const results = await Promise.allSettled(promises);
-      const loadedTransformers: TransformerMeta[] = [];
-      const allHistory: TelemetryPoint[] = [];
-
-      results.forEach((result, idx) => {
-        const trfId = toTransformerId(activeIds[idx]);
-        if (result.status === 'fulfilled' && !result.value.missing) {
-          let readings = result.value.data;
-          if (Array.isArray(readings) && readings.length > 0) {
-            const times = readings.map((r: any) => new Date(r.Timestamp || r.timestamp || r.Time || r.time).getTime());
-            const maxTime = Math.max(...times.filter((t) => !isNaN(t)));
-            const oneYearAgo = maxTime - 365 * 24 * 60 * 60 * 1000;
-            readings = readings.filter((r: any) => new Date(r.Timestamp || r.timestamp || r.Time || r.time).getTime() >= oneYearAgo);
-
-            if (readings.length > 0) {
-              const latest = readings[readings.length - 1];
-              const hi01 = safeNumber(latest.HI ?? latest.hi, 0);
-              const status = statusFromHI(hi01);
-
-              const mappedReadings: TelemetryPoint[] = readings.slice(-120).map((r: any) => ({
-                ...r,
-                Transformer: trfId,
-                Time: r.Timestamp || r.timestamp || r.Time || r.time,
-                HI: safeNumber(r.HI ?? r.hi, hi01),
-                Ambient_Temperature_C: safeNumber(r.Ambient_Temperature_C ?? r.ambient_temperature_c, safeNumber(latest.Ambient_Temperature_C ?? latest.ambient_temperature_c)),
-                Age_yr: safeNumber(r.Age_yr ?? r.age_yr, safeNumber(latest.Age_yr ?? latest.age_yr)),
-                Outages_hours_per_year: safeNumber(r.Outages_hours_per_year ?? r.outages_hours_per_year, safeNumber(latest.Outages_hours_per_year ?? latest.outages_hours_per_year)),
-                Current_A: safeNumber(r.Current_A ?? r.current_a, safeNumber(latest.Current_A ?? latest.current_a)),
-                Voltage_kV: safeNumber(r.Voltage_kV ?? r.voltage_kv, safeNumber(latest.Voltage_kV ?? latest.voltage_kv)),
-                Predicted_HI: safeNumber(r.Predicted_HI ?? r.predicted_hi, safeNumber(latest.Predicted_HI ?? latest.predicted_hi)),
-                Maintenance_Count: safeNumber(r.Maintenance_Count ?? r.maintenance_count, safeNumber(latest.Maintenance_Count ?? latest.maintenance_count)),
-                Short_Circuits: safeNumber(r.Short_Circuits ?? r.short_circuits ?? r.No_of_Short_Circuits ?? r.no_of_short_circuits, safeNumber(latest.Short_Circuits ?? latest.short_circuits ?? latest.No_of_Short_Circuits ?? latest.no_of_short_circuits)),
-                No_of_Short_Circuits: safeNumber(r.No_of_Short_Circuits ?? r.no_of_short_circuits ?? r.Short_Circuits ?? r.short_circuits, safeNumber(latest.No_of_Short_Circuits ?? latest.no_of_short_circuits ?? latest.Short_Circuits ?? latest.short_circuits)),
-                Temp_score: safeNumber(r.Temp_score ?? r.temp_score, safeNumber(latest.Temp_score ?? latest.temp_score)),
-                Age_score: safeNumber(r.Age_score ?? r.age_score, safeNumber(latest.Age_score ?? latest.age_score)),
-                Maintenance_score: safeNumber(r.Maintenance_score ?? r.maintenance_score, safeNumber(latest.Maintenance_score ?? latest.maintenance_score)),
-                ShortCircuit_score: safeNumber(r.ShortCircuit_score ?? r.shortcircuit_score, safeNumber(latest.ShortCircuit_score ?? latest.shortcircuit_score)),
-                Outage_score: safeNumber(r.Outage_score ?? r.outage_score, safeNumber(latest.Outage_score ?? latest.outage_score)),
-                Current_score: safeNumber(r.Current_score ?? r.current_score, safeNumber(latest.Current_score ?? latest.current_score)),
-                Voltage_score: safeNumber(r.Voltage_score ?? r.voltage_score, safeNumber(latest.Voltage_score ?? latest.voltage_score)),
-              }));
-
-              allHistory.push(...mappedReadings);
-
-              const ambient = safeNumber(latest.Ambient_Temperature_C ?? latest.ambient_temperature_c, 0);
-              const ageYr = safeNumber(latest.Age_yr ?? latest.age_yr, 0);
-              const weightageOverall = clamp(100 - hi01 * 100 + ageYr * 1.5 + ambient * 0.1, 0, 100);
-              const rulYears = clamp((hi01 * 0.2 + (1 - ageYr) * 0.02) * 10, 0.1, 20);
-              const rulDays = rulYears * 365;
-
-              loadedTransformers.push({
-                id: trfId, name: trfId, status, healthIndex: hi01 * 100, ambientTemperatureC: ambient,
-                ageYr, capacity: safeNumber(latest.capacity ?? latest.Capacity, 0),
-                location: latest.location || 'N/A', type: latest.type || 'N/A',
-                lastMaintenance: String(latest.Timestamp || latest.time), readings: mappedReadings,
-                weightageOverall, rulDays, rulYears,
-              });
-            }
-          }
-        }
-      });
-
-      allHistory.sort((a, b) => new Date(b.Time).getTime() - new Date(a.Time).getTime());
-      setTransformers(loadedTransformers.sort((a, b) => a.id.localeCompare(b.id)));
-      setHistory(allHistory);
-      setLastUpdated(new Date().toLocaleString('en-US', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }));
-    } catch { } finally { setIsLoading(false); }
+      const res = await fetch('/api/dashboard-data');
+      const json = await res.json();
+      if (json.success && json.data) {
+        setTransformers(json.data.transformers || []);
+        setHistory(json.data.history || []);
+        setLastUpdated(new Date().toLocaleString('en-US', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }));
+      }
+    } catch (err) {
+      console.error('Failed to load dashboard data', err);
+    } finally { 
+      setIsLoading(false); 
+    }
   };
 
   useEffect(() => {
@@ -477,13 +398,13 @@ export default function DashboardOverview() {
         <h3 className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-3">Key Parameters Trend <span className="text-gray-500">(All Transformers Average)</span></h3>
         <div className="grid grid-cols-7 divide-x divide-gray-800">
           {[
-            { label: 'Voltage (kV)', key: 'Voltage_kV', val: '11.02', col: '#3b82f6' },
-            { label: 'Current (A)', key: 'Current_A', val: '128.6', col: '#10b981' },
-            { label: 'Age (Years)', key: 'Age_yr', val: '4.35', col: '#8b5cf6' },
-            { label: 'Ambient Temp (°C)', key: 'Ambient_Temperature_C', val: '32.8', col: '#f59e0b' },
-            { label: 'Outages', key: 'Outages_hours_per_year', val: '48', col: '#ef4444' },
-            { label: 'Short Circuits', key: 'Short_Circuits', val: '26', col: '#0ea5e9' },
-            { label: 'Maintenance Count', key: 'Maintenance_Count', val: '134', col: '#eab308' },
+            { label: 'Voltage (kV)', key: 'Voltage_kV', val: history.length > 0 ? (history.reduce((s, r) => s + safeNumber(r.Voltage_kV), 0) / history.length).toFixed(2) : '—', col: '#3b82f6' },
+            { label: 'Current (A)', key: 'Current_A', val: history.length > 0 ? (history.reduce((s, r) => s + safeNumber(r.Current_A), 0) / history.length).toFixed(1) : '—', col: '#10b981' },
+            { label: 'Age (Years)', key: 'Age_yr', val: history.length > 0 ? (history.reduce((s, r) => s + safeNumber(r.Age_yr), 0) / history.length).toFixed(2) : '—', col: '#8b5cf6' },
+            { label: 'Ambient Temp (°C)', key: 'Ambient_Temperature_C', val: history.length > 0 ? (history.reduce((s, r) => s + safeNumber(r.Ambient_Temperature_C), 0) / history.length).toFixed(1) : '—', col: '#f59e0b' },
+            { label: 'Outages', key: 'Outages_hours_per_year', val: history.length > 0 ? Math.round(history.reduce((s, r) => s + safeNumber(r.Outages_hours_per_year), 0) / history.length).toString() : '—', col: '#ef4444' },
+            { label: 'Short Circuits', key: 'Short_Circuits', val: history.length > 0 ? Math.round(history.reduce((s, r) => s + safeNumber(r.No_of_Short_Circuits), 0) / history.length).toString() : '—', col: '#0ea5e9' },
+            { label: 'Maintenance Count', key: 'Maintenance_Count', val: history.length > 0 ? Math.round(history.reduce((s, r) => s + safeNumber(r.Maintenance_Count), 0) / history.length).toString() : '—', col: '#eab308' },
           ].map((item, i) => (
             <div key={i} className="px-3 flex flex-col items-center">
               <span className="text-[9px] text-gray-400">{item.label}</span>

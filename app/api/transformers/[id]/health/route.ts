@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { sql } from '@/lib/postgres';
-import { getSafeTableName, tableExists } from '@/lib/transformerService';
+import { getHealthMetrics } from '@/lib/transformerService';
 
 const paramsSchema = z.object({
-  id: z.string().regex(/^(?:transformer_)?(\d+)$/, { message: 'Invalid Transformer ID format' }),
+  id: z.string().regex(/^(?:transformer_)?\d+$/, { message: 'Invalid Transformer ID' }),
 });
 
-export async function DELETE(
+export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -22,27 +21,24 @@ export async function DELETE(
     }
 
     const { id } = paramsValidation.data;
-    const tableName = getSafeTableName(id);
 
-    console.log(`[DELETE] /api/admin/transformers/${id}/cascade - Dropping sensor table: ${tableName}`);
+    console.log(`[GET] /api/transformers/${id}/health`);
 
-    const exists = await tableExists(tableName);
-    if (!exists) {
+    const data = await getHealthMetrics(id);
+
+    if (data === null) {
       return NextResponse.json(
-        { success: false, error: `Table ${tableName} does not exist.` },
+        { success: false, error: `Transformer table transformer_${id} does not exist.` },
         { status: 404 }
       );
     }
 
-    // Drop table safely (identifier is secure via getSafeTableName validation)
-    await sql.unsafe(`DROP TABLE IF EXISTS ${tableName}`);
-
     return NextResponse.json({
       success: true,
-      message: `Table ${tableName} dropped successfully.`,
+      data,
     });
   } catch (error: any) {
-    console.error('Error in DELETE /api/admin/transformers/[id]/cascade:', error);
+    console.error('Error in GET /api/transformers/[id]/health:', error);
     return NextResponse.json(
       { success: false, error: error.message || 'Internal Server Error' },
       { status: 500 }

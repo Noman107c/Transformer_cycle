@@ -37,27 +37,25 @@ const getStatusColor = (hi: number) => {
 };
 
 export default function HealthPage() {
-  const { data: transformersData, isLoading: isLoadingTransformers } = useSWR('/api/transformers?limit=100', fetcher);
-  const transformers = transformersData?.data || [];
+  const { data: transformersDataResponse, isLoading: isLoadingTransformers } = useSWR('/api/transformers', fetcher);
+  const transformers = transformersDataResponse?.data || [];
   
   const [selectedTrfId, setSelectedTrfId] = useState('');
 
   // Auto-select first transformer if not set
   useEffect(() => {
     if (!selectedTrfId && transformers.length > 0) {
-      setSelectedTrfId(transformers[0]._id);
+      setSelectedTrfId(transformers[0].id);
     }
   }, [transformers, selectedTrfId]);
 
-  const selectedTransformer = transformers.find((t: any) => t._id === selectedTrfId) || {};
+  const selectedTransformer = transformers.find((t: any) => t.id === selectedTrfId) || {};
   
-  const hi = selectedTransformer.healthIndex || 0;
-  const temp = selectedTransformer.ambientTemperatureC || 0;
-  
-  // These were mocked, falling back to 0 or estimates if not in DB
-  const oil = 95.4; 
-  const insulation = 96.5;
-  const furan = 12.3;
+  const hi = selectedTransformer.avg_hi ?? (selectedTransformer.HI ?? 0);
+  const temp = selectedTransformer.Ambient_Temperature_C || 0;
+  const current = selectedTransformer.Current_A || 0;
+  const voltage = selectedTransformer.Voltage_kV || 0;
+  const shortCircuits = selectedTransformer.No_of_Short_Circuits || 0;
 
   const { label, color, led } = getStatusColor(hi);
 
@@ -89,7 +87,7 @@ export default function HealthPage() {
               className="bg-[#121633] border border-blue-500/15 rounded-lg px-4 py-2 text-xs font-bold text-white focus:outline-none focus:border-cyan-500/30 shadow-inner cursor-pointer"
             >
               {transformers.map((trf: any) => (
-                <option key={trf._id} value={trf._id}>{trf.transformerId} ({trf.name})</option>
+                <option key={trf.id} value={trf.id}>{trf.name} ({trf.id})</option>
               ))}
             </select>
           )}
@@ -103,7 +101,7 @@ export default function HealthPage() {
             <Cpu size={24} className="text-cyan-400" />
           </div>
           <div>
-            <h2 className="text-lg font-black text-white uppercase">{selectedTransformer.transformerId || 'N/A'} Status Monitor</h2>
+            <h2 className="text-lg font-black text-white uppercase">{selectedTransformer.id || 'N/A'} Status Monitor</h2>
             <p className="text-[10px] text-muted-foreground font-bold tracking-wider uppercase mt-0.5">Asset ID Reference</p>
           </div>
         </div>
@@ -127,7 +125,7 @@ export default function HealthPage() {
         {/* Winding Temp Gauge */}
         <div className="glassmorphism rounded-lg border border-blue-500/10 p-5 shadow-lg bg-[#151a37]/35 flex flex-col items-center justify-between relative overflow-hidden">
           <Thermometer className="absolute top-4 right-4 text-orange-400/20" size={32} />
-          <h3 className="text-xs font-black text-white uppercase tracking-wider mb-2 self-start">Winding Temp</h3>
+          <h3 className="text-xs font-black text-white uppercase tracking-wider mb-2 self-start">Ambient Temp</h3>
           <div className="w-40 h-40 relative">
             <ResponsiveContainer width="100%" height="100%">
               <RadialBarChart innerRadius="70%" outerRadius="100%" data={makeGaugeData(temp, '#f97316')} startAngle={180} endAngle={0}>
@@ -136,62 +134,62 @@ export default function HealthPage() {
               </RadialBarChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pt-8">
-              <span className="text-2xl font-black text-white">{temp}°C</span>
+              <span className="text-2xl font-black text-white">{temp.toFixed(1)}°C</span>
               <span className="text-[9px] text-muted-foreground font-bold uppercase mt-0.5">Limit: 90°C</span>
             </div>
           </div>
         </div>
 
-        {/* Oil Level Gauge */}
+        {/* Current Gauge */}
         <div className="glassmorphism rounded-lg border border-blue-500/10 p-5 shadow-lg bg-[#151a37]/35 flex flex-col items-center justify-between relative overflow-hidden">
           <Droplet className="absolute top-4 right-4 text-cyan-400/20" size={32} />
-          <h3 className="text-xs font-black text-white uppercase tracking-wider mb-2 self-start">Oil Insulation</h3>
+          <h3 className="text-xs font-black text-white uppercase tracking-wider mb-2 self-start">Current (A)</h3>
           <div className="w-40 h-40 relative">
             <ResponsiveContainer width="100%" height="100%">
-              <RadialBarChart innerRadius="70%" outerRadius="100%" data={makeGaugeData(oil, '#06b6d4')} startAngle={180} endAngle={0}>
-                <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+              <RadialBarChart innerRadius="70%" outerRadius="100%" data={makeGaugeData(current, '#06b6d4')} startAngle={180} endAngle={0}>
+                <PolarAngleAxis type="number" domain={[0, 500]} angleAxisId={0} tick={false} />
                 <RadialBar background dataKey="value" cornerRadius={6} />
               </RadialBarChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pt-8">
-              <span className="text-2xl font-black text-white">{oil}%</span>
-              <span className="text-[9px] text-muted-foreground font-bold uppercase mt-0.5">Limit: &gt;60%</span>
+              <span className="text-2xl font-black text-white">{current.toFixed(1)} A</span>
+              <span className="text-[9px] text-muted-foreground font-bold uppercase mt-0.5">Limit: &gt;450 A</span>
             </div>
           </div>
         </div>
 
-        {/* Insulation Resistance */}
+        {/* Voltage Gauge */}
         <div className="glassmorphism rounded-lg border border-blue-500/10 p-5 shadow-lg bg-[#151a37]/35 flex flex-col items-center justify-between relative overflow-hidden">
           <Gauge className="absolute top-4 right-4 text-green-400/20" size={32} />
-          <h3 className="text-xs font-black text-white uppercase tracking-wider mb-2 self-start">Insulation Resistance</h3>
+          <h3 className="text-xs font-black text-white uppercase tracking-wider mb-2 self-start">Voltage (kV)</h3>
           <div className="w-40 h-40 relative">
             <ResponsiveContainer width="100%" height="100%">
-              <RadialBarChart innerRadius="70%" outerRadius="100%" data={makeGaugeData(insulation, '#10b981')} startAngle={180} endAngle={0}>
-                <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+              <RadialBarChart innerRadius="70%" outerRadius="100%" data={makeGaugeData(voltage, '#10b981')} startAngle={180} endAngle={0}>
+                <PolarAngleAxis type="number" domain={[0, 15]} angleAxisId={0} tick={false} />
                 <RadialBar background dataKey="value" cornerRadius={6} />
               </RadialBarChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pt-8">
-              <span className="text-2xl font-black text-white">{insulation} M&Omega;</span>
-              <span className="text-[9px] text-muted-foreground font-bold uppercase mt-0.5">Limit: &gt;50 M&Omega;</span>
+              <span className="text-2xl font-black text-white">{voltage.toFixed(2)} kV</span>
+              <span className="text-[9px] text-muted-foreground font-bold uppercase mt-0.5">Limit: 12 kV</span>
             </div>
           </div>
         </div>
 
-        {/* Furan Content */}
+        {/* Short Circuits */}
         <div className="glassmorphism rounded-lg border border-blue-500/10 p-5 shadow-lg bg-[#151a37]/35 flex flex-col items-center justify-between relative overflow-hidden">
           <AlertTriangle className="absolute top-4 right-4 text-purple-400/20" size={32} />
-          <h3 className="text-xs font-black text-white uppercase tracking-wider mb-2 self-start">Furan Gas Content</h3>
+          <h3 className="text-xs font-black text-white uppercase tracking-wider mb-2 self-start">Short Circuits</h3>
           <div className="w-40 h-40 relative">
             <ResponsiveContainer width="100%" height="100%">
-              <RadialBarChart innerRadius="70%" outerRadius="100%" data={makeGaugeData(furan, '#a855f7')} startAngle={180} endAngle={0}>
-                <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+              <RadialBarChart innerRadius="70%" outerRadius="100%" data={makeGaugeData(shortCircuits, '#a855f7')} startAngle={180} endAngle={0}>
+                <PolarAngleAxis type="number" domain={[0, 20]} angleAxisId={0} tick={false} />
                 <RadialBar background dataKey="value" cornerRadius={6} />
               </RadialBarChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pt-8">
-              <span className="text-2xl font-black text-white">{furan} ppm</span>
-              <span className="text-[9px] text-muted-foreground font-bold uppercase mt-0.5">Limit: &lt;50 ppm</span>
+              <span className="text-2xl font-black text-white">{shortCircuits}</span>
+              <span className="text-[9px] text-muted-foreground font-bold uppercase mt-0.5">Limit: &lt;5</span>
             </div>
           </div>
         </div>

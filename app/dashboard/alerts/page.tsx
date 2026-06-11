@@ -13,37 +13,50 @@ import {
   ShieldCheck
 } from 'lucide-react';
 
-const initialAlerts = [
-  { id: 'ALT-101', trfId: 'TRF-09', type: 'temperature', severity: 'critical', message: 'Winding temperature exceeds threshold (92.6°C)', time: '12-May-2024 10:15 AM', resolved: false },
-  { id: 'ALT-102', trfId: 'TRF-10', type: 'insulation', severity: 'critical', message: 'Remaining Useful Life (RUL) less than 200 days', time: '12-May-2024 09:50 AM', resolved: false },
-  { id: 'ALT-103', trfId: 'TRF-06', type: 'vibration', severity: 'warning', message: 'High short circuit occurrences (26) registered', time: '12-May-2024 08:30 AM', resolved: false },
-  { id: 'ALT-104', trfId: 'TRF-03', type: 'furan', severity: 'warning', message: 'Health Index declining, furan levels high (27.5 ppm)', time: '12-May-2024 07:45 AM', resolved: false },
-  { id: 'ALT-105', trfId: 'TRF-08', type: 'oilLevel', severity: 'medium', message: 'Oil level dropped below optimal limit (61.3%)', time: '11-May-2024 02:20 PM', resolved: false },
-  { id: 'ALT-106', trfId: 'TRF-01', type: 'maintenance', severity: 'low', message: 'Scheduled maintenance calibration overdue', time: '10-May-2024 09:00 AM', resolved: true, resolvedAt: '10-May-2024 11:30 AM' },
-  { id: 'ALT-107', trfId: 'TRF-05', type: 'temperature', severity: 'medium', message: 'Winding temp spiking during heavy load hours', time: '09-May-2024 04:15 PM', resolved: true, resolvedAt: '09-May-2024 06:00 PM' },
-];
+import useSWR from 'swr';
+
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 export default function AlertsPage() {
-  const [alerts, setAlerts] = useState(initialAlerts);
+  const { data: transformersDataResponse } = useSWR('/api/transformers', fetcher);
+  const transformers = transformersDataResponse?.data || [];
+
+  const [localResolved, setLocalResolved] = useState<string[]>([]);
   const [filterTab, setFilterTab] = useState('Active'); // Active, All, Resolved, Critical, Warning
 
-  const handleResolveAlert = (id: string) => {
-    setAlerts(prev => prev.map(alert => {
-      if (alert.id === id) {
-        return {
-          ...alert,
-          resolved: true,
-          resolvedAt: new Date().toLocaleString(),
-        };
+  // Dynamically generate alerts based on actual telemetry
+  const generateAlerts = () => {
+    const generated: any[] = [];
+    transformers.forEach((trf: any) => {
+      // Use avg_hi, avg_temp which are returned by the public API route
+      const hi = trf.avg_hi ?? trf.HI;
+      const temp = trf.avg_temp ?? trf.Ambient_Temperature_C;
+      
+      if (hi !== undefined && hi !== null && hi < 0.55) {
+        generated.push({ id: `ALT-HI-${trf.id}`, trfId: trf.id, type: 'health', severity: 'critical', message: `Health Index critical (${(hi * 100).toFixed(1)}%)`, time: new Date(trf.Timestamp || Date.now()).toLocaleString() });
       }
-      return alert;
-    }));
-    alert(`Alert ${id} has been successfully resolved and logged.`);
+      if (trf.Current_A && trf.Current_A > 400) {
+        generated.push({ id: `ALT-CUR-${trf.id}`, trfId: trf.id, type: 'overload', severity: 'warning', message: `Current overload (${trf.Current_A} A)`, time: new Date(trf.Timestamp || Date.now()).toLocaleString() });
+      }
+      if (temp !== undefined && temp !== null && temp > 85) {
+        generated.push({ id: `ALT-TMP-${trf.id}`, trfId: trf.id, type: 'temperature', severity: 'critical', message: `Winding temperature exceeds threshold (${temp.toFixed(1)}°C)`, time: new Date(trf.Timestamp || Date.now()).toLocaleString() });
+      }
+      if (trf.No_of_Short_Circuits && trf.No_of_Short_Circuits > 10) {
+        generated.push({ id: `ALT-SC-${trf.id}`, trfId: trf.id, type: 'vibration', severity: 'warning', message: `High short circuit occurrences (${trf.No_of_Short_Circuits}) registered`, time: new Date(trf.Timestamp || Date.now()).toLocaleString() });
+      }
+    });
+    return generated.map(a => ({ ...a, resolved: localResolved.includes(a.id) }));
+  };
+
+  const alerts = generateAlerts();
+
+  const handleResolveAlert = (id: string) => {
+    setLocalResolved(prev => [...prev, id]);
+    alert(`Alert ${id} has been successfully resolved.`);
   };
 
   const handleDeleteAlert = (id: string) => {
-    setAlerts(prev => prev.filter(alert => alert.id !== id));
-    alert(`Alert ${id} deleted from logs.`);
+    setLocalResolved(prev => [...prev, id]);
   };
 
   const filteredAlerts = alerts.filter(alert => {

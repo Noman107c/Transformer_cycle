@@ -92,67 +92,13 @@ export default function AdminDashboard() {
   const fetchTransformers = useCallback(async () => {
     setLoading(true);
     try {
-      const { createClient } = await import('@/utils/supabase/client');
-      const supabase = createClient();
-      
-      const { data: metaData, error: metaErr } = await supabase.from('transformers').select('*').order('id', { ascending: true });
-      if (metaErr) throw metaErr;
-
-      const enriched = await Promise.all(
-        (metaData || []).map(async (meta: any) => {
-          const numMatch = meta.id.match(/\d+/);
-          if (!numMatch) return meta;
-          const tableNum = parseInt(numMatch[0], 10);
-          const tableName = `transformer_${tableNum}`;
-
-          const { data: allRows, error } = await supabase
-            .from(tableName)
-            .select('*');
-
-          if (error || !allRows || allRows.length === 0) return meta;
-          
-          allRows.sort((a: any, b: any) => {
-            const timeA = new Date(a.Timestamp || a.timestamp || a.Time || a.time).getTime();
-            const timeB = new Date(b.Timestamp || b.timestamp || b.Time || b.time).getTime();
-            return timeB - timeA;
-          });
-          const latest = allRows[0];
-          
-          const hi: number | null = latest.HI ?? latest.hi ?? null;
-          let liveStatus = meta.status;
-          if (hi !== null) {
-            if      (hi < 0.55) liveStatus = 'CRITICAL';
-            else if (hi < 0.70) liveStatus = 'WARNING';
-            else if (hi < 0.80) liveStatus = 'MONITOR';
-            else                liveStatus = 'GOOD';
-          }
-
-          return {
-            ...meta,
-            Timestamp:              latest.Timestamp ?? latest.timestamp ?? latest.Time ?? latest.time,
-            Ambient_Temperature_C:  latest.Ambient_Temperature_C ?? latest.ambient_temperature_c,
-            Age_yr:                 latest.Age_yr ?? latest.age_yr,
-            Maintenance_Count:      latest.Maintenance_Count ?? latest.maintenance_count,
-            No_of_Short_Circuits:   latest.No_of_Short_Circuits ?? latest.no_of_short_circuits ?? latest.Short_Circuits ?? latest.short_circuits,
-            Outages_hours_per_year: latest.Outages_hours_per_year ?? latest.outages_hours_per_year,
-            Current_A:              latest.Current_A ?? latest.current_a,
-            Voltage_kV:             latest.Voltage_kV ?? latest.voltage_kv,
-            Temp_score:             latest.Temp_score ?? latest.temp_score,
-            Age_score:              latest.Age_score ?? latest.age_score,
-            Maintenance_score:      latest.Maintenance_score ?? latest.maintenance_score,
-            ShortCircuit_score:     latest.ShortCircuit_score ?? latest.shortcircuit_score ?? latest.short_circuit_score,
-            Outage_score:           latest.Outage_score ?? latest.outage_score,
-            Current_score:          latest.Current_score ?? latest.current_score,
-            Voltage_score:          latest.Voltage_score ?? latest.voltage_score,
-            HI:                     latest.HI ?? latest.hi,
-            Predicted_HI:           latest.Predicted_HI ?? latest.predicted_hi,
-            status:                 liveStatus,
-            healthIndex:            hi,
-          };
-        })
-      );
-      
-      setTransformers(enriched);
+      const res = await fetch('/api/admin/dashboard-data');
+      const json = await res.json();
+      if (json.success && json.data) {
+        setTransformers(json.data);
+      } else {
+        toast.error('Network error – could not fetch transformers');
+      }
     } catch {
       toast.error('Network error – could not fetch transformers');
     } finally {
@@ -347,7 +293,7 @@ export default function AdminDashboard() {
         <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-2xl">
           <div className="px-5 py-3 border-b border-gray-800 flex items-center gap-2 text-xs text-gray-400 font-bold uppercase">
             <Database size={13} className="text-blue-400" />
-            Transformer Records — SQL Query Result
+            Transformer Records
             <span className="ml-auto text-gray-600">{filtered.length} row(s)</span>
           </div>
 
@@ -357,11 +303,6 @@ export default function AdminDashboard() {
                 <tr className="border-b border-gray-800 text-gray-400 font-bold uppercase bg-gray-900/60">
                   {([
                     { label: 'Name',          key: 'name' },
-                    { label: 'Location',      key: 'location' },
-                    { label: 'Type',          key: 'type' },
-                    { label: 'Cap. (kVA)',    key: 'capacity' },
-                    { label: 'Status',        key: 'status' },
-                    { label: 'Active',        key: 'is_active' },
                     { label: 'HI (%)',        key: 'HI' },
                     { label: 'Pred. HI',      key: 'Predicted_HI' },
                     { label: 'Temp (°C)',     key: 'Ambient_Temperature_C' },

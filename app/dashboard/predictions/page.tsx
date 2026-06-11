@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import useSWR from 'swr';
 import { 
   Zap, 
   Play, 
@@ -24,27 +25,41 @@ import {
   Legend
 } from 'recharts';
 
-const transformers = Array.from({ length: 25 }, (_, i) => `TRF-${String(i + 1).padStart(2, '0')}`);
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 export default function PredictionsPage() {
-  const [selectedTrf, setSelectedTrf] = useState('TRF-01');
+  const { data: transformersDataResponse, isLoading: isLoadingTransformers } = useSWR('/api/transformers', fetcher);
+  const transformers = transformersDataResponse?.data || [];
+  
+  const [selectedTrfId, setSelectedTrfId] = useState('');
+  
+  useEffect(() => {
+    if (!selectedTrfId && transformers.length > 0) {
+      setSelectedTrfId(transformers[0].id);
+    }
+  }, [transformers, selectedTrfId]);
+
+  const selectedTransformer = transformers.find((t: any) => t.id === selectedTrfId) || {};
+
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulationStep, setSimulationStep] = useState(0);
   const [predictions, setPredictions] = useState({
-    rulDays: 1540,
-    rulYears: 4.22,
-    confidence: 94,
-    failureDate: '12-Jul-2028',
+    rulDays: 0,
+    rulYears: 0,
+    confidence: 0,
+    failureDate: '',
     lastCalculated: '',
   });
 
-  const getSimulatedRUL = (trfId: string) => {
-    const num = parseInt(trfId.split('-')[1]);
-    const baseHI = num <= 5 ? 88 + num : num <= 15 ? 70 + num : num <= 20 ? 55 + num : 30 + num;
+  const calculateRealRUL = (trf: any) => {
+    const currentHI = trf.avg_hi ?? trf.HI;
+    if (currentHI === undefined || currentHI === null) return predictions;
     
-    const days = Math.round(baseHI * 16.6);
+    // RUL calculation heuristic: Assuming HI 0.0 is dead, HI 1.0 is new
+    // Assuming max lifespan is 40 years (~14600 days)
+    const days = Math.max(0, Math.round(currentHI * 14600));
     const years = parseFloat((days / 365.25).toFixed(2));
-    const confidence = Math.round(85 + (baseHI % 10));
+    const confidence = Math.round(85 + (currentHI * 10)); // pseudo confidence
     
     const d = new Date();
     d.setDate(d.getDate() + days);
@@ -59,8 +74,10 @@ export default function PredictionsPage() {
   };
 
   useEffect(() => {
-    setPredictions(getSimulatedRUL(selectedTrf));
-  }, [selectedTrf]);
+    if (selectedTransformer.id) {
+      setPredictions(calculateRealRUL(selectedTransformer));
+    }
+  }, [selectedTransformer]);
 
   const handleRunPrediction = () => {
     setIsSimulating(true);
@@ -75,23 +92,18 @@ export default function PredictionsPage() {
     }, 2200);
 
     setTimeout(() => {
-      setPredictions(getSimulatedRUL(selectedTrf));
+      setPredictions(calculateRealRUL(selectedTransformer));
       setIsSimulating(false);
       setSimulationStep(0);
     }, 3200);
   };
 
-  const metricsMap: { [key: string]: number } = {};
-  transformers.forEach((trf) => {
-    const num = parseInt(trf.split('-')[1]);
-    metricsMap[trf] = num <= 5 ? 88 + num : num <= 15 ? 70 + num : num <= 20 ? 55 + num : 30 + num;
-  });
-
-  // Timeline forecast data
+  // Timeline forecast data using the real HI
+  const currentHI = (selectedTransformer.avg_hi ?? selectedTransformer.HI ?? 0.8) * 100;
   const forecastData = Array.from({ length: 6 }, (_, i) => {
     const year = 2024 + i;
-    const factor = Math.max(0, (predictions.rulYears - i) / predictions.rulYears);
-    const hiValue = Math.round(metricsMap[selectedTrf] * factor);
+    const factor = predictions.rulYears > 0 ? Math.max(0, (predictions.rulYears - i) / predictions.rulYears) : 0;
+    const hiValue = Math.round(currentHI * factor);
     return {
       name: String(year),
       hi: hiValue,
@@ -121,16 +133,19 @@ export default function PredictionsPage() {
         {/* Selector */}
         <div className="flex items-center gap-2.5">
           <span className="text-xs font-bold text-muted-foreground uppercase">Select Asset:</span>
-          <select 
-            value={selectedTrf}
-            onChange={(e) => setSelectedTrf(e.target.value)}
-            disabled={isSimulating}
-            className="bg-[#121633] border border-blue-500/15 rounded-lg px-4 py-2 text-xs font-bold text-white focus:outline-none focus:border-cyan-500/30 shadow-inner cursor-pointer disabled:opacity-40"
-          >
-            {transformers.map((trf) => (
-              <option key={trf} value={trf}>{trf}</option>
-            ))}
-          </select>
+          {isLoadingTransformers ? (
+             <span className="text-white text-xs">Loading...</span>
+          ) : (
+            <select 
+              value={selectedTrfId}
+              onChange={(e) => setSelectedTrfId(e.target.value)}
+              className="bg-[#121633] border border-blue-500/15 rounded-lg px-4 py-2 text-xs font-bold text-white focus:outline-none focus:border-cyan-500/30 shadow-inner cursor-pointer"
+            >
+              {transformers.map((trf: any) => (
+                <option key={trf.id} value={trf.id}>{trf.name} ({trf.id})</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 

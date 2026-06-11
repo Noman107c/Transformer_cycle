@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Wrench, 
@@ -15,23 +15,33 @@ import {
   Check
 } from 'lucide-react';
 
-const initialSchedules = [
-  { id: 'MNT-001', trfId: 'TRF-09', type: 'Replace Winding / Overhaul', priority: 'High', date: '12-Jun-2024', status: 'Pending' },
-  { id: 'MNT-002', trfId: 'TRF-10', type: 'Complete Asset Overhaul', priority: 'High', date: '28-Jun-2024', status: 'Pending' },
-  { id: 'MNT-003', trfId: 'TRF-06', type: 'Bushing Detail Inspection', priority: 'Medium', date: '15-Jul-2024', status: 'Pending' },
-  { id: 'MNT-004', trfId: 'TRF-08', type: 'Oil Level Test & cooling check', priority: 'Medium', date: '01-Aug-2024', status: 'Pending' },
-  { id: 'MNT-005', trfId: 'TRF-03', type: 'Minor Oil Top-Up refilling', priority: 'Low', date: '15-Aug-2024', status: 'Pending' },
-];
+import useSWR from 'swr';
 
-const pastLogs = [
-  { id: 'LOG-102', trfId: 'TRF-01', type: 'Oil Quality Refinement', technician: 'Sarah Connor', date: '01-May-2024', notes: 'Oil furan content purified, insulation verified.' },
-  { id: 'LOG-101', trfId: 'TRF-02', type: 'Bushing Replacement', technician: 'John Miller', date: '15-Apr-2024', notes: 'Damaged bushing swapped out, load test passed.' },
-  { id: 'LOG-100', trfId: 'TRF-15', type: 'Thermal Sensor Recalibration', technician: 'Sarah Connor', date: '14-Jan-2024', notes: 'Winding temperature thermocouple recalibrated.' },
-];
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 export default function MaintenancePage() {
-  const [schedules, setSchedules] = useState(initialSchedules);
-  const [history, setHistory] = useState(pastLogs);
+  const { data: transformersDataResponse } = useSWR('/api/transformers', fetcher);
+  const transformers = transformersDataResponse?.data || [];
+
+  // Generate dynamic logs based on real maintenance count / record count
+  const dynamicLogs = transformers.filter((t: any) => (t.Maintenance_Count || t.record_count) > 0).map((t: any, idx: number) => ({
+    id: `LOG-${idx + 100}`,
+    trfId: t.id,
+    type: 'Routine Overhaul',
+    technician: 'System DB Record',
+    date: new Date(t.Timestamp || Date.now() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+    notes: `Maintenance cycle completed. Total count: ${t.Maintenance_Count || t.record_count}`,
+  }));
+
+  const [schedules, setSchedules] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+
+  // Initialize history when data loads
+  useEffect(() => {
+    if (dynamicLogs.length > 0 && history.length === 0) {
+      setHistory(dynamicLogs.slice(0, 5));
+    }
+  }, [dynamicLogs]);
   
   // Log form states
   const [newTrfId, setNewTrfId] = useState('TRF-01');
@@ -105,19 +115,18 @@ export default function MaintenancePage() {
 
             <div className="space-y-3 text-xs font-semibold">
               
-              {/* Transformer Selector */}
-              <div className="flex flex-col gap-1">
-                <label className="text-muted-foreground uppercase text-[10px]">Select Asset ID</label>
-                <select 
-                  value={newTrfId}
-                  onChange={(e) => setNewTrfId(e.target.value)}
-                  className="bg-[#121633] border border-blue-500/15 rounded-lg px-3 py-2 text-white focus:outline-none cursor-pointer"
-                >
-                  {Array.from({ length: 25 }, (_, i) => `TRF-${String(i + 1).padStart(2, '0')}`).map((trf) => (
-                    <option key={trf} value={trf}>{trf}</option>
-                  ))}
-                </select>
-              </div>
+              <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-wider block">Target Asset</label>
+                    <select 
+                      value={newTrfId}
+                      onChange={(e) => setNewTrfId(e.target.value)}
+                      className="w-full bg-[#0a0e27] border border-blue-500/15 rounded-lg px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-cyan-500/30"
+                    >
+                      {transformers.map((trf: any) => (
+                        <option key={trf.id} value={trf.id}>{trf.name || trf.id}</option>
+                      ))}
+                    </select>
+                  </div>
 
               {/* Maintenance Type */}
               <div className="flex flex-col gap-1">

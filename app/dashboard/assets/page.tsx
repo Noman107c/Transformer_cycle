@@ -27,27 +27,27 @@ export default function AssetDashboard() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/transformers?limit=100');
+      const res = await fetch('/api/transformers');
       const data = await res.json();
       if (data.success) {
         const mapped = data.data.map((t: any) => {
-          const hiPct = (t.healthIndex || 0.8) * 100;
+          const hiPct = (t.avg_hi !== null && t.avg_hi !== undefined) ? t.avg_hi * 100 : (t.healthIndex !== undefined ? t.healthIndex : t.HI ? t.HI * 100 : 80);
           let displayStatus = 'Healthy';
           if (t.status === 'CRITICAL') displayStatus = 'Critical';
           else if (t.status === 'WARNING') displayStatus = 'At Risk';
           else if (t.status === 'MONITOR') displayStatus = 'Moderate';
           
           return {
-            id: t._id, // T1, T2 etc.
-            displayId: t.transformerId || `TRF-${t._id.substring(1)}`,
+            id: t.id, 
+            displayId: t.id,
             location: t.location || 'Unknown Substation',
             type: t.type || 'Distribution',
             capacity: t.capacity || 50,
             hi: parseFloat(hiPct.toFixed(1)),
             status: displayStatus,
-            temp: t.ambientTemperatureC || 40,
-            age: t.ageYr || 3.0,
-            lastMaint: t.lastMaintenance ? new Date(t.lastMaintenance).toLocaleDateString() : 'N/A',
+            temp: t.avg_temp ?? t.Ambient_Temperature_C ?? 40,
+            age: t.Age_yr || 3.0,
+            lastMaint: t.Maintenance_Count ? `${t.Maintenance_Count} performed` : 'N/A',
           };
         });
         setTransformersData(mapped);
@@ -68,16 +68,19 @@ export default function AssetDashboard() {
     setDetailsLoading(true);
     setSelectedDetails([]);
     try {
-      const response = await fetch(`/json/${transformer.id}.json`);
+      const response = await fetch(`/api/transformers/${transformer.id}`);
       if (response.ok) {
         let data = await response.json();
-        if (Array.isArray(data) && data.length > 0) {
-          const times = data.map((r: any) => new Date(r.Time).getTime());
-          const maxTime = Math.max(...times);
-          const oneYearAgo = maxTime - 365 * 24 * 60 * 60 * 1000;
-          data = data.filter((r: any) => new Date(r.Time).getTime() >= oneYearAgo);
+        if (data.success && Array.isArray(data.data)) {
+          const rows = data.data;
+          if (rows.length > 0) {
+            const times = rows.map((r: any) => new Date(r.Timestamp).getTime());
+            const maxTime = Math.max(...times);
+            const oneYearAgo = maxTime - 365 * 24 * 60 * 60 * 1000;
+            const filtered = rows.filter((r: any) => new Date(r.Timestamp).getTime() >= oneYearAgo);
+            setSelectedDetails(filtered.slice(0, 5));
+          }
         }
-        setSelectedDetails(Array.isArray(data) ? data.slice(-5) : []);
       }
     } catch (err) {
       console.error('Failed to fetch details:', err);
@@ -333,7 +336,7 @@ export default function AssetDashboard() {
                       <tbody className="divide-y divide-blue-500/5">
                         {selectedDetails.map((reading, idx) => (
                           <tr key={idx} className="hover:bg-blue-500/5">
-                            <td className="py-2">{reading.Time}</td>
+                            <td className="py-2">{new Date(reading.Timestamp).toLocaleString()}</td>
                             <td className="py-2 text-center text-orange-400 font-bold">{Number(reading.Ambient_Temperature_C).toFixed(1)}°C</td>
                             <td className="py-2 text-center">{Number(reading.Current_A).toFixed(1)} A</td>
                             <td className="py-2 text-center">{Number(reading.Voltage_kV).toFixed(3)} kV</td>

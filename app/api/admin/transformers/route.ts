@@ -1,134 +1,156 @@
-import { type NextRequest, NextResponse } from 'next/server';
-import { transformersTable, sensorTable } from '@/lib/supabase';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { sql } from '@/lib/postgres';
 
-// GET /api/admin/transformers
-export async function GET(_request: NextRequest) {
+// -------------------- VALIDATION --------------------
+const createTransformerSchema = z.object({
+  name: z.string().min(1),
+  location: z.string().optional().default(''),
+  type: z.string().optional().default('Distribution'),
+  capacity: z.coerce.number().int().positive().default(50),
+  status: z.string().optional().default('GOOD'),
+});
+
+// -------------------- GET ALL TRANSFORMERS --------------------
+export async function GET() {
   try {
-    const { data: metaRows, error: metaErr } = await transformersTable()
-      .select('*')
-      .order('id', { ascending: true });
+    // STEP 1: fetch all transformer tables
+    const tables = await sql`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+      AND table_name LIKE 'transformer_%'
+      ORDER BY table_name ASC
+    `;
 
-    if (metaErr) throw metaErr;
-    if (!metaRows || metaRows.length === 0) return NextResponse.json({ success: true, data: [] });
+    const result = [];
 
-    const enriched = await Promise.all(
-      (metaRows as any[]).map(async (meta: any) => {
-        try {
-          // Map ID 'T18' to table 'transformer_18'
-          const tableNum = meta.id.replace(/\D/g, '');
-          const tableName = `transformer_${tableNum}`;
+    // STEP 2: enrich each transformer
+    for (const t of tables) {
+      const tableName = t.table_name;
 
-          const { data: rows, error: sensorErr } = await (supabaseAdmin as any)
-            .from(tableName)
-            .select('Timestamp, HI, Ambient_Temperature_C, Age_yr, Current_A, Voltage_kV, Predicted_HI, Maintenance_Count, No_of_Short_Circuits, Outages_hours_per_year, Temp_score, Age_score, Maintenance_score, ShortCircuit_score, Outage_score, Current_score, Voltage_score')
-            .order('Timestamp', { ascending: false })
-            .limit(1);
+      const latest = await sql.unsafe(`
+        SELECT *
+        FROM ${tableName}
+        ORDER BY "Timestamp" DESC
+        LIMIT 1
+      `);
 
-          if (sensorErr || !rows || rows.length === 0) return meta;
+      if (!latest.length) continue;
 
-          const latest = rows[0];
-          const hi = typeof latest.HI === 'number' ? latest.HI : null;
-          let liveStatus = meta.status;
-          if (hi !== null) {
-            if (hi < 0.55) liveStatus = 'CRITICAL';
-            else if (hi < 0.70) liveStatus = 'WARNING';
-            else if (hi < 0.80) liveStatus = 'MONITOR';
-            else liveStatus = 'GOOD';
-          }
+      const row = latest[0];
+      const id = tableName.replace('transformer_', '');
 
-          return {
-            ...meta,
-            ...latest,
-            status:                 liveStatus,
-            healthIndex:            hi !== null ? hi * 100 : 0,
-          };
-        } catch {
-          console.error(`Failed to enrich transformer ${meta.id}`);
-          return meta;
-        }
-      })
+      let status = 'GOOD';
+
+      if (row.HI !== null && row.HI !== undefined) {
+        if (row.HI < 0.55) status = 'CRITICAL';
+        else if (row.HI < 0.70) status = 'WARNING';
+        else if (row.HI < 0.80) status = 'MONITOR';
+      }
+
+      result.push({
+        id,
+        name: `Transformer ${id}`,
+        status,
+
+        Timestamp: row.Timestamp,
+        HI: row.HI,
+        Predicted_HI: row.Predicted_HI,
+        Voltage_kV: row.Voltage_kV,
+        Current_A: row.Current_A,
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    console.error('[GET transformers error]', error);
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
     );
-
-    return NextResponse.json({ success: true, data: enriched });
-  } catch (err: any) {
-    console.error("Error in GET /api/admin/transformers:", err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
 
-// POST /api/admin/transformers
-// Auto-generates transformer ID, inserts metadata row,
-// creates the sensor data table via RPC, enables RLS, and adds the allow-read policy.
+// -------------------- POST CREATE NEW TRANSFORMER --------------------
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, location, type, capacity, status } = body;
+    const parsed = createTransformerSchema.safeParse(body);
 
-    if (!name) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: 'name is required' },
+        { success: false, error: parsed.error.errors[0].message },
         { status: 400 }
       );
     }
 
-    // ── 1. Auto-generate next numeric ID ──────────────────────────
-    const { data: existing } = await transformersTable().select('id');
-    const nums = (existing ?? [])
-      .map((r: any) => parseInt(String(r.id).replace(/\D/g, ''), 10))
-      .filter((n: number) => !isNaN(n));
-    const nextNum   = nums.length > 0 ? Math.max(...nums) + 1 : 1;
-    const newId     = `T${nextNum}`;
-    const tableName = `transformer_${nextNum}`;
+    const { name, location, type, capacity, status } = parsed.data;
 
-    // ── 2. Insert metadata row ─────────────────────────────────────
-    const { data: row, error: insertErr } = await transformersTable()
-      .insert({
-        id:        newId,
-        name:      name.trim(),
-        location:  location?.trim() || '',
-        type:      type || 'Distribution',
-        capacity:  Number(capacity) || 50,
-        status:    status || 'GOOD',
-        is_active: true,
-      })
-      .select('id, name, location, type, capacity, status, is_active, created_at, updated_at')
-      .single();
+    // STEP 1: find next table number
+    const tables = await sql`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+      AND table_name LIKE 'transformer_%'
+    `;
 
-    if (insertErr) {
-      if (insertErr.message?.includes('duplicate') || insertErr.code === '23505') {
-        return NextResponse.json(
-          { success: false, error: 'A transformer with this ID already exists' },
-          { status: 409 }
-        );
+    let max = 0;
+
+    for (const t of tables) {
+      const match = t.table_name.match(/transformer_(\d+)/);
+      if (match) {
+        max = Math.max(max, parseInt(match[1]));
       }
-      throw insertErr;
     }
 
-    // ── 3. Create the sensor data table via SQL (requires service-role or RPC) ──
-    // Calls a SECURITY DEFINER RPC function. See walkthrough.md for SQL to create it.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: rpcErr } = await (supabaseAdmin as any).rpc('create_transformer_table', {
-      p_table_name: tableName,
+    const newId = max + 1;
+    const tableName = `transformer_${newId}`;
+
+    // STEP 2: create table
+    await sql.unsafe(`
+      CREATE TABLE ${tableName} (
+        "Timestamp" timestamp,
+        "Ambient_Temperature_C" double precision,
+        "Age_yr" int,
+        "Maintenance_Count" int,
+        "No_of_Short_Circuits" int,
+        "Outages_hours_per_year" double precision,
+        "Current_A" double precision,
+        "Voltage_kV" double precision,
+        "Temp_score" double precision,
+        "Age_score" double precision,
+        "Maintenance_score" double precision,
+        "ShortCircuit_score" double precision,
+        "Outage_score" double precision,
+        "Current_score" double precision,
+        "Voltage_score" double precision,
+        "HI" double precision,
+        "Predicted_HI" double precision
+      )
+    `);
+
+    // STEP 3: insert metadata (ONLY if table exists)
+    await sql`
+      INSERT INTO transformers (id, name, location, type, capacity, status, is_active, created_at, updated_at)
+      VALUES (${tableName}, ${name}, ${location}, ${type}, ${capacity}, ${status}, true, NOW(), NOW())
+    `;
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        id: tableName,
+        name,
+      },
     });
-
-    // also keep explicit reference if RPC fails due to missing privileges
-    if (rpcErr) {
-      return NextResponse.json(
-        { success: false, error: `Failed to create sensor table: ${rpcErr.message}` },
-        { status: 500 }
-      );
-    }
-
-    /* unreachable */
-    if (false) {
-      // kept to preserve previous console.warn block structure
-      console.warn('create_transformer_table RPC failed (table may already exist or RPC not set up)');
-    }
-
-    return NextResponse.json({ success: true, data: row, assignedId: newId }, { status: 201 });
-  } catch (err: any) {
-    console.error("Error in POST /api/admin/transformers:", err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (error: any) {
+    console.error('[POST transformer error]', error);
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    );
   }
 }
